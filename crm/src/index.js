@@ -193,7 +193,7 @@ async function zaloStatus(env) {
   if(zaloBotConfigured(env)){
     try{
       const response=await fetch('https://bot-api.zaloplatforms.com/bot'+env.ZALO_BOT_TOKEN+'/getWebhookInfo',{
-        method:'POST',headers:{'content-type':'application/json'},body:'{}'
+        method:'POST',headers:{'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(4000)
       });
       if(response.ok){
         const info=await response.json();
