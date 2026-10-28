@@ -45,6 +45,9 @@ small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;backgroun
 .zalo-actions button{background:#1876f2}
 .zalo-actions button.secondary{background:#fff;color:#1263d0;border-color:#b6d1fb}
 .zalo-command{font:700 14px/1.5 ui-monospace,SFMono-Regular,monospace;word-break:break-all;color:#172e54;background:white;border-radius:10px;padding:12px 14px;border:1px dashed #abc8ec;margin:8px 0}
+.zalo-recovery{margin-top:18px;padding:15px;border:1px solid #dae3ed;border-radius:14px;background:#fff}
+.zalo-recovery p{margin:4px 0 10px;font-size:13px}
+.zalo-recovery .zalo-actions button{font-size:12px;padding:10px 13px}
 #zaloMessage{font-size:13px;line-height:1.5;min-height:22px;color:#3e617e}
 @media(max-width:780px){.zalo-actions button{flex:1 1 100%}}
 </style>
@@ -111,6 +114,17 @@ small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;backgroun
     <div id="zaloCommand" class="zalo-command" hidden></div>
     <div id="zaloMessage" role="status" aria-live="polite"></div>
     <div id="zaloAudit" class="muted" aria-live="polite"></div>
+    <p id="zaloBotIdentity" class="muted"></p>
+    <div class="zalo-recovery">
+      <p><strong>Ghép bot dự phòng</strong> — sử dụng khi Webhook đúng URL nhưng không nhận được tin nhắn. Hệ thống tạm dùng Zalo getUpdates tối đa 3 phút và tự khôi phục Webhook.</p>
+      <div class="zalo-actions">
+        <button type="button" id="zaloRecoveryStart" class="secondary">1. Bắt đầu ghép dự phòng</button>
+        <button type="button" id="zaloRecoveryFinish" class="secondary">2. Xác nhận đã gửi mã</button>
+        <button type="button" id="zaloRecoveryCancel" class="secondary">Hủy / Khôi phục Webhook</button>
+      </div>
+      <div id="zaloRecoveryCode" class="zalo-command" hidden></div>
+      <p id="zaloRecoveryStatus" class="muted" aria-live="polite">Chưa kích hoạt ghép dự phòng.</p>
+    </div>
     <p class="muted">Để ghép bot: nhấn "Tạo mã ghép bot", sao chép lệnh hiển thị và gửi lệnh đó vào tin nhắn riêng với Bot An Châu HSK trên Zalo. Mã có hiệu lực 15 phút và chỉ sử dụng một lần. Không gửi lệnh vào nhóm công khai.</p>
   </div>
 </section>
@@ -224,11 +238,18 @@ async function zaloCheck(){
    const data=await r.json();
    $("zaloState").textContent="Bot Token: "+(data.bot_ready?"đã cấu hình":"chưa cấu hình")+
      " · Webhook Secret: "+(data.webhook_secret_ready?"đã cấu hình":"chưa cấu hình")+
-     " · Webhook Zalo: "+(data.webhook_url_matches===true?"đúng URL":data.webhook_url_matches===false?"SAI URL":"chưa xác minh ("+(data.webhook_api_status||"chưa rõ")+")")+
+     " · Webhook Zalo: "+(data.recovery_active?"tạm tắt để ghép dự phòng":data.webhook_url_matches===true?"đúng URL":data.webhook_url_matches===false?"SAI URL":"chưa xác minh ("+(data.webhook_api_status||"chưa rõ")+")")+
      " · Cuộc trò chuyện: "+(data.paired?"đã ghép":"chưa ghép")+
      " · Thông báo đang chờ: "+(data.pending||0);
    const audit=(data.webhook_diagnostics||[]).map(x=>x.reason+": "+x.count).join(" · ");
    $("zaloAudit").textContent=audit?"Sự kiện Zalo đã nhận (chỉ đếm, không lưu nội dung): "+audit:"Chưa ghi nhận Webhook nào sau khi bật chẩn đoán.";
+   $("zaloBotIdentity").textContent=data.bot_account?
+     "Bot Token hiện kết nối tới tài khoản: "+data.bot_account+" — hãy đối chiếu với Bot An Châu HSK đang nhắn trên Zalo.":
+     "Chưa đọc được danh tính Bot từ Zalo ("+(data.bot_identity_status||"không rõ")+").";
+   $("zaloRecoveryStatus").textContent=data.recovery_active?
+     "Đang ở chế độ ghép dự phòng (thời hạn đến "+new Date(data.recovery_expires_at).toLocaleTimeString("vi-VN")+
+     "). Gửi đúng mã mới cho bot rồi nhấn Xác nhận đã gửi mã.":
+     data.paired?"Đã ghép thành công, không cần chế độ dự phòng.":"Chưa ở chế độ ghép dự phòng.";
    $("zaloMessage").textContent=data.paired?"Bot đã ghép. Anh có thể thử gửi tin.":
      data.webhook_url_matches===false?"Zalo Bot đang trỏ sai Webhook URL. Cần cập nhật đúng URL trong Zalo Bot Creator.":
      "Bot chưa ghép cuộc trò chuyện. Kiểm tra thống kê Webhook bên dưới, đồng bộ lại Webhook rồi tạo mã mới nếu cần.";
@@ -243,6 +264,37 @@ async function zaloCheck(){
  }
 }
 $("zaloCheck").addEventListener("click",()=>{void zaloCheck();});
+
+
+async function recoveryAction(path,label){
+  const status=$("zaloRecoveryStatus");
+  if(!authenticated||!adminToken||!apiBase){askForLogin("Cần đăng nhập CRM để ghép Zalo dự phòng.");return}
+  const controller=new AbortController();const stop=setTimeout(()=>controller.abort(),15000);
+  status.textContent=label+"...";
+  try{
+    const res=await request(path,{method:"POST",headers:{"Authorization":"Bearer "+adminToken,"Content-Type":"application/json"},body:"{}",signal:controller.signal});
+    const data=await res.json();
+    if(path.endsWith("/start")){
+      const code=$("zaloRecoveryCode");code.hidden=false;code.textContent=data.command;
+      status.textContent="Đã mở ghép dự phòng trong 3 phút. Anh gửi lệnh ở trên vào cuộc trò chuyện riêng với Bot An Châu HSK, sau đó nhấn nút '2. Xác nhận đã gửi mã'.";
+    }else if(path.endsWith("/finish")){
+      status.textContent=data.paired?
+       "Đã ghép thành công! "+(data.test_message_sent?"Zalo đã nhận lệnh gửi tin xác nhận.":"Tin nhắn xác nhận chưa gửi được.")+
+       (data.webhook_restored?" Webhook đã khôi phục.":" Webhook đang được khôi phục tự động."):
+       "Chưa tìm thấy mã ghép trong Zalo. Anh kiểm tra đã gửi đúng bot, sau đó bấm Xác nhận đã gửi mã lần nữa trong thời hạn.";
+      if(data.paired)$("zaloRecoveryCode").hidden=true;
+    }else{
+      status.textContent=data.webhook_restored?"Đã hủy ghép dự phòng và khôi phục Webhook.":"Chưa khôi phục được Webhook, hệ thống sẽ tự thử lại.";
+      $("zaloRecoveryCode").hidden=true;
+    }
+    if(path.endsWith("/finish")&&data.paired)await zaloCheck();
+  }catch(e){
+    status.textContent=e.name==="AbortError"?"Hệ thống quá thời gian phản hồi. Anh có thể thử lại.":"Không thực hiện được: "+e.message;
+  }finally{clearTimeout(stop)}
+}
+$("zaloRecoveryStart").addEventListener("click",()=>recoveryAction("/api/admin/zalo/recovery/start","Đang chuyển sang chế độ dự phòng"));
+$("zaloRecoveryFinish").addEventListener("click",()=>recoveryAction("/api/admin/zalo/recovery/finish","Đang kiểm tra tin Zalo"));
+$("zaloRecoveryCancel").addEventListener("click",()=>recoveryAction("/api/admin/zalo/recovery/cancel","Đang khôi phục Webhook"));
 
 $("zaloSync").addEventListener("click",async function(){
   if(!authenticated||!apiBase||!adminToken){
