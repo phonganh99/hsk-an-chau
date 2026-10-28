@@ -271,9 +271,22 @@ async function recoveryAction(path,label){
   if(!authenticated||!adminToken||!apiBase){askForLogin("Cần đăng nhập CRM để ghép Zalo dự phòng.");return}
   const controller=new AbortController();const stop=setTimeout(()=>controller.abort(),15000);
   status.textContent=label+"...";
+  if(path.endsWith("/start")){$("zaloRecoveryCode").hidden=true;$("zaloRecoveryCode").textContent="";}
   try{
-    const res=await request(path,{method:"POST",headers:{"Authorization":"Bearer "+adminToken,"Content-Type":"application/json"},body:"{}",signal:controller.signal});
-    const data=await res.json();
+    // Read the safe, structured Zalo API error instead of reducing every failure to HTTP 502.
+    const res=await fetch(apiBase+path,{method:"POST",headers:{"Authorization":"Bearer "+adminToken,"Content-Type":"application/json"},body:"{}",signal:controller.signal,cache:"no-store"});
+    let data;try{data=await res.json()}catch{data={error:"invalid_api_response"}}
+    if(!res.ok){
+      if(res.status===401){authenticated=false;adminToken="";apiBase="";askForLogin("ADMIN_TOKEN không còn hợp lệ. Đăng nhập lại để tiếp tục.");return;}
+      if(data.error==="zalo_delete_webhook_failed"){
+        status.textContent="Zalo chưa cho phép tắt Webhook. Lý do: "+(data.zalo_reason||"không rõ")+
+          " · Trạng thái API: "+(data.webhook_api_status||"chưa xác minh")+
+          ". Mã ghép chưa được kích hoạt; không gửi mã cũ.";
+        return;
+      }
+      status.textContent="Không bắt đầu được ghép dự phòng ("+res.status+"): "+(data.error||"unknown_error")+". Không gửi mã cũ.";
+      return;
+    }
     if(path.endsWith("/start")){
       const code=$("zaloRecoveryCode");code.hidden=false;code.textContent=data.command;
       status.textContent="Đã mở ghép dự phòng trong 3 phút. Anh gửi lệnh ở trên vào cuộc trò chuyện riêng với Bot An Châu HSK, sau đó nhấn nút '2. Xác nhận đã gửi mã'.";
