@@ -29,6 +29,15 @@ td button{min-height:35px;padding:7px 11px;font-size:12px}
 #notice.error{color:#b12222}#notice.ok{color:#286b49}
 small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;background:#ecaa36;display:inline-block;margin-right:7px}
 @media(max-width:780px){.config{grid-template-columns:1fr}.stat-row{grid-template-columns:1fr 1fr}.filters{width:100%}.filters label{flex:1 1 120px}.card{padding:17px}header{padding:18px 16px}header span{display:block;margin:5px 0 0}}
+
+.manual-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}
+.manual-grid label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:800;color:#65584b}
+.manual-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:20px}
+.manual-check{display:flex;align-items:flex-start;gap:9px;font-size:12px;color:#6d5f4e;line-height:1.55}
+.manual-check input{width:18px;min-height:18px;height:18px;flex:none;margin:1px 0 0;accent-color:#ef682d}
+.manual-result{font-size:13px;margin-top:11px;min-height:20px;line-height:1.5}
+.manual-result.ok{color:#286b49}.manual-result.error{color:#af3022}
+@media(max-width:780px){.manual-grid{grid-template-columns:1fr}.manual-actions{align-items:stretch;flex-direction:column}.manual-actions button{width:100%}}
 </style>
 </head>
 <body>
@@ -44,6 +53,39 @@ small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;backgroun
 </div>
 <div id="notice" role="status" aria-live="polite">Chưa kết nối cơ sở dữ liệu.</div>
 </div>
+
+<section class="card" aria-labelledby="manualTitle">
+<h2 id="manualTitle">Thêm Lead thủ công</h2>
+<p class="muted">Dùng khi học sinh nhắn Zalo Sale, gọi điện hoặc đến văn phòng. Trùng số điện thoại sẽ nhận diện hồ sơ cũ, không tạo thêm Lead. Chức năng này hiện dành cho người có quyền quản trị CRM; không chia sẻ ADMIN_TOKEN cho toàn bộ Sale.</p>
+<form id="manualLeadForm" autocomplete="off">
+<div class="manual-grid">
+<label>Họ tên học sinh *<input id="manualName" name="full_name" required minlength="2" maxlength="90" placeholder="Nhập họ tên" /></label>
+<label>Số điện thoại *<input id="manualPhone" name="phone" type="tel" required inputmode="tel" placeholder="09xx xxx xxx" /></label>
+<label>Nguồn tiếp cận *<select id="manualSource" name="source_code" required>
+<option value="zalo_sale">Zalo Sale</option><option value="phone">Gọi điện trực tiếp</option>
+<option value="walkin">Đến văn phòng</option><option value="other">Khác</option>
+</select></label>
+<label>Cơ sở *<select id="manualOffice" name="office" required><option value="hn">Hà Nội</option><option value="na">Nghệ An</option></select></label>
+<label>Khóa học *<select id="manualCourse" name="course" required>
+<option value="unsure">Chưa rõ — Cần tư vấn</option>
+<option value="hsk1">HSK 1</option><option value="hsk2">HSK 2</option><option value="hsk3">HSK 3</option><option value="combo">Combo HSK 1–3</option>
+</select></label>
+<label>Ca học mong muốn<select id="manualSlot" name="preferred_slot">
+<option value="">Chưa chọn</option><option value="AC1">AC1 · T2-4-6 · 14:00</option><option value="AC2">AC2 · T2-4-6 · 15:30</option><option value="AC3">AC3 · T3-5-7 · 14:00</option><option value="AC4">AC4 · T3-5-7 · 15:30</option>
+</select></label>
+<label>Trình độ trước đó<select id="manualLevel" name="previous_level">
+<option value="">Chưa rõ</option><option value="new">Chưa học</option><option value="studied">Đã học</option><option value="unsure">Không chắc</option>
+</select></label>
+<label>Sale phụ trách<input id="manualOwner" name="assigned_to" maxlength="80" placeholder="Ví dụ: Sale HSK Hà Nội"/></label>
+<label>Người nhập liệu *<input id="manualEnteredBy" name="entered_by" required maxlength="80" minlength="2" placeholder="Tên nhân sự nhập" /></label>
+</div>
+<div class="manual-actions">
+<label class="manual-check"><input type="checkbox" id="manualPrivacy" required />Tôi xác nhận đã thông báo cho khách về việc An Châu lưu thông tin để tư vấn và xử lý tuyển sinh.</label>
+<button type="submit" id="manualSubmit">+ Thêm Lead</button>
+</div>
+<div class="manual-result" role="status" aria-live="polite" id="manualResult"></div>
+</form>
+</section>
 <div class="card">
 <h2>Tổng quan tiếp nhận</h2>
 <div class="stat-row">
@@ -61,6 +103,7 @@ small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;backgroun
 <label>Trạng thái<select id="filterStatus"><option value="">Tất cả</option><option value="new">Lead mới</option><option value="contacted">Đã liên hệ</option><option value="invited">Mời đến VP</option><option value="deposit">Đặt cọc</option><option value="enrolled">Nhập học</option><option value="lost">Không phù hợp</option></select></label>
 <button id="refresh" class="secondary" type="button">Tải lại</button>
 <button id="export" class="secondary" type="button">Xuất CSV</button>
+<button id="retryNotify" class="secondary" type="button">Thử gửi thông báo Telegram</button>
 </div>
 </div>
 <div class="table-wrap"><table><thead><tr>
@@ -121,6 +164,51 @@ async function refresh(){
   tell("Đã tải "+(data.items||[]).length+" Lead. Danh sách tối đa 200 Lead/trang, xuất CSV để xem toàn bộ.",false);
  }catch(e){tell(e.message,true)}
 }
+
+function manualFeedback(message,isError){
+  const box=$("manualResult");box.textContent=message;box.className="manual-result "+(isError?"error":"ok");
+}
+$("manualLeadForm").addEventListener("submit",async function(ev){
+  ev.preventDefault();
+  if(!this.reportValidity())return;
+  const button=$("manualSubmit");
+  if(!apiBase||!adminToken){manualFeedback("Vui lòng kết nối CRM bằng tài khoản quản trị trước khi thêm Lead.",true);return;}
+  const body={
+    full_name:$("manualName").value.trim(),phone:$("manualPhone").value.trim(),
+    office:$("manualOffice").value,course:$("manualCourse").value,
+    preferred_slot:$("manualSlot").value,previous_level:$("manualLevel").value,
+    source_code:$("manualSource").value,assigned_to:$("manualOwner").value.trim(),
+    entered_by:$("manualEnteredBy").value.trim(),privacy_confirmed:$("manualPrivacy").checked
+  };
+  button.disabled=true;manualFeedback("Đang kiểm tra số điện thoại và lưu hồ sơ...",false);
+  try{
+    const res=await request("/api/admin/leads",{
+      method:"POST",headers:{"Authorization":"Bearer "+adminToken,"Content-Type":"application/json"},
+      body:JSON.stringify(body)
+    });
+    const result=await res.json();
+    if(result.ok!==true)throw Error("CRM chưa xác nhận lưu Lead.");
+    if(result.duplicate){
+      manualFeedback("Số điện thoại này đã có hồ sơ HSK (mã "+result.lead_code.slice(0,8)+"). CRM không tạo Lead mới hoặc gửi thông báo trùng.",false);
+    } else{
+      manualFeedback("Đã lưu Lead mới (mã "+result.lead_code.slice(0,8)+"). Thông báo Telegram sẽ được gửi khi cấu hình bot hợp lệ.",false);
+      $("manualLeadForm").reset();
+    }
+    await refresh();
+  }catch(e){manualFeedback("Chưa lưu được Lead: "+e.message,true)}
+  finally{button.disabled=false}
+});
+$("retryNotify").addEventListener("click",async function(){
+  const btn=this;btn.disabled=true;
+  try{
+    const res=await request("/api/admin/notifications/flush",{
+      method:"POST",headers:{"Authorization":"Bearer "+adminToken,"Content-Type":"application/json"}
+    });
+    const info=await res.json();
+    tell(info.configured?"Thông báo Telegram: gửi thành công "+info.sent+", lỗi "+info.failed+".":"Telegram chưa được cấu hình bot token và chat ID.",false);
+  }catch(e){tell(e.message,true)}finally{btn.disabled=false}
+});
+
 $("connect").addEventListener("click",function(){
  try{
   var url=new URL($("base").value.trim());
