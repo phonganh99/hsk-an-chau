@@ -185,25 +185,59 @@ async function createZaloPairCode(env) {
     .bind(await sha256Text(code),expiresAt,now).run();
   return reply({ok:true,command:'/bind '+code,expires_at:expiresAt});
 }
+
+const ZALO_WEBHOOK_URL="https://an-chau-hsk-crm-api.phonganh99.workers.dev/api/zalo/webhook";
+const ZALO_AUDIT_REASONS=new Set(["missing_header","invalid_header","invalid_json","other_event","invalid_pair","unknown_code","paired"]);
+async function auditZalo(env,reason) {
+  // A small number of aggregate counters, never raw messages, chat IDs or credentials.
+  if(!ZALO_AUDIT_REASONS.has(reason)||!env.DB)return;
+  try {
+    await env.DB.prepare("INSERT INTO zalo_webhook_diagnostics(reason,count,last_seen_at) VALUES(?,1,?) ON CONFLICT(reason) DO UPDATE SET count=count+1,last_seen_at=excluded.last_seen_at")
+      .bind(reason,new Date().toISOString()).run();
+  }catch{}
+}
+async function getZaloWebhookInfo(env) {
+  if(!zaloBotConfigured(env))return {api_status:"bot_token_missing",url_matches:null};
+  try {
+    const response=await fetch("https://bot-api.zaloplatforms.com/bot"+env.ZALO_BOT_TOKEN+"/getWebhookInfo",{
+      method:"POST",headers:{"content-type":"application/json"},body:"{}",signal:AbortSignal.timeout(6000)
+    });
+    if(!response.ok)return {api_status:response.status===401||response.status===403?"bot_token_rejected":"zalo_http_"+response.status,url_matches:null};
+    const payload=await response.json();
+    if(payload?.ok!==true)return {api_status:"zalo_api_error",url_matches:null};
+    const current=payload?.result?.url;
+    return {api_status:"ok",url_matches:typeof current==="string"?current===ZALO_WEBHOOK_URL:null};
+  }catch(e){return {api_status:e?.name==="TimeoutError"||e?.name==="AbortError"?"timeout":"network_error",url_matches:null};}
+}
 async function zaloStatus(env) {
   const target=await getZaloRecipient(env);
   const pending=await env.DB.prepare("SELECT COUNT(*) AS total FROM notification_outbox WHERE channel='zalo' AND status='pending'").first();
-  const expectedUrl="https://an-chau-hsk-crm-api.phonganh99.workers.dev/api/zalo/webhook";
-  let webhookVerified=null,webhookApiOk=false;
-  if(zaloBotConfigured(env)){
-    try{
-      const response=await fetch('https://bot-api.zaloplatforms.com/bot'+env.ZALO_BOT_TOKEN+'/getWebhookInfo',{
-        method:'POST',headers:{'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(4000)
-      });
-      if(response.ok){
-        const info=await response.json();
-        webhookApiOk=info?.ok===true;
-        if(webhookApiOk)webhookVerified=info?.result?.url===expectedUrl;
-      }
-    }catch{/* Keep status usable when Zalo API is offline. */}
-  }
-  return reply({ok:true,bot_ready:zaloBotConfigured(env),webhook_secret_ready:zaloWebhookConfigured(env),paired:!!target?.chat_id,chat_type:target?.chat_type||null,pending:pending?.total||0,webhook_url:expectedUrl,webhook_api_ok:webhookApiOk,webhook_url_matches:webhookVerified});
+  const checks=await getZaloWebhookInfo(env);
+  const audits=await env.DB.prepare("SELECT reason,count,last_seen_at FROM zalo_webhook_diagnostics ORDER BY reason").all();
+  return reply({ok:true,bot_ready:zaloBotConfigured(env),webhook_secret_ready:zaloWebhookConfigured(env),
+    paired:!!target?.chat_id,chat_type:target?.chat_type||null,pending:pending?.total||0,
+    webhook_url:ZALO_WEBHOOK_URL,webhook_api_ok:checks.api_status==="ok",
+    webhook_url_matches:checks.url_matches,webhook_api_status:checks.api_status,
+    webhook_diagnostics:audits.results||[]});
 }
+async function zaloSyncWebhook(env){
+  if(!zaloBotConfigured(env)||!zaloWebhookConfigured(env))
+    return reply({error:"zalo_secrets_not_ready"},503);
+  try {
+    const response=await fetch("https://bot-api.zaloplatforms.com/bot"+env.ZALO_BOT_TOKEN+"/setWebhook",{
+      method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({url:ZALO_WEBHOOK_URL,secret_token:env.ZALO_WEBHOOK_SECRET}),
+      signal:AbortSignal.timeout(8000)
+    });
+    if(!response.ok)return reply({error:"zalo_webhook_update_failed",status:response.status},502);
+    const payload=await response.json();
+    if(payload?.ok!==true)return reply({error:"zalo_webhook_update_rejected",api_error_code:payload?.error_code||null},502);
+    const confirm=await getZaloWebhookInfo(env);
+    return reply({ok:confirm.url_matches===true,verified:confirm.url_matches===true,webhook_api_status:confirm.api_status},
+      confirm.url_matches===true?200:502);
+  } catch {return reply({error:"zalo_webhook_unreachable"},502);}
+}
+
 async function zaloSendTest(env) {
   const target=await getZaloRecipient(env);
   if(!target?.chat_id||!zaloBotConfigured(env))return reply({error:'zalo_not_paired'},409);
@@ -213,26 +247,35 @@ async function zaloSendTest(env) {
 async function zaloWebhook(req,env,ctx) {
   if(!zaloWebhookConfigured(env))return reply({error:'webhook_not_ready'},503);
   const signature=req.headers.get("x-bot-api-secret-token")||"";
-  if(!await tokenEqual(signature,env.ZALO_WEBHOOK_SECRET))return reply({error:'unauthorized'},403);
-  let body;try{body=await readJson(req);}catch{return reply({error:'invalid_request'},400);}
+  if(!signature){await auditZalo(env,"missing_header");return reply({error:'unauthorized'},403);}
+  if(!await tokenEqual(signature,env.ZALO_WEBHOOK_SECRET)){
+    await auditZalo(env,"invalid_header");return reply({error:'unauthorized'},403);
+  }
+  let body;try{body=await readJson(req)}catch{
+    await auditZalo(env,"invalid_json");return reply({error:'invalid_request'},400);
+  }
   // Zalo's documented webhook wraps events in result; some actual deliveries are flat.
   // Accept either, but always require a valid X-Bot-Api-Secret-Token header first.
   const evt=(body?.result&&typeof body.result==='object')?body.result:body;
-  if(evt?.event_name!=='message.text.received')return reply({ok:true,handled:false});
+  if(evt?.event_name!=='message.text.received'){
+    await auditZalo(env,"other_event");return reply({ok:true,handled:false});
+  }
   const msg=evt.message;
   const text=typeof msg?.text==='string'?msg.text.trim():'';
   const chatId=(typeof msg?.chat?.id==='string'||typeof msg?.chat?.id==='number')?String(msg.chat.id):'';
   const chatType=String(msg?.chat?.chat_type||'').toUpperCase();
   // Pair only one staff member's private chat, never auto-pair a random incoming chat.
-  if(chatType!=='PRIVATE'||!chatId||chatId.length>128||!/^\/bind HSK-[A-Fa-f0-9]{24}$/i.test(text))
-    return reply({ok:true,handled:false});
+  if(chatType!=='PRIVATE'||!chatId||chatId.length>128||!/^\/bind HSK-[A-Fa-f0-9]{24}$/i.test(text)){
+    await auditZalo(env,"invalid_pair");return reply({ok:true,handled:false});
+  }
   const code=text.slice('/bind '.length).toUpperCase();
   const now=new Date().toISOString();
   const used=await env.DB.prepare("UPDATE zalo_pair_codes SET used_at=? WHERE code_hash=? AND used_at IS NULL AND expires_at>?")
     .bind(now,await sha256Text(code),now).run();
-  if((used.meta?.changes||0)!==1)return reply({ok:true,handled:false});
+  if((used.meta?.changes||0)!==1){await auditZalo(env,"unknown_code");return reply({ok:true,handled:false});}
   await env.DB.prepare("INSERT INTO zalo_notification_target(id,chat_id,chat_type,paired_at) VALUES('primary',?,'PRIVATE',?) ON CONFLICT(id) DO UPDATE SET chat_id=excluded.chat_id,chat_type=excluded.chat_type,paired_at=excluded.paired_at")
     .bind(chatId,now).run();
+  await auditZalo(env,"paired");
   if(ctx&&typeof ctx.waitUntil==='function')ctx.waitUntil(
     (async()=>{
       await sendZaloText(env,chatId,'✅ Đã kết nối Bot An Châu HSK với CRM. Bạn sẽ nhận thông báo khi có Lead mới.');
@@ -343,6 +386,7 @@ export default {
         else if(path==="/api/admin/leads"&&method==="POST")result=await adminCreateLead(req,env,ctx);
         else if(path==="/api/admin/notifications/flush"&&method==="POST")result=reply({ok:true,...await flushZaloOutbox(env,15)});
         else if(path==="/api/admin/zalo/status"&&method==="GET")result=await zaloStatus(env);
+        else if(path==="/api/admin/zalo/sync-webhook"&&method==="POST")result=await zaloSyncWebhook(env);
         else if(path==="/api/admin/zalo/pair"&&method==="POST")result=await createZaloPairCode(env);
         else if(path==="/api/admin/zalo/test"&&method==="POST")result=await zaloSendTest(env);
         else if(path==="/api/admin/stats"&&method==="GET")result=await adminStats(env);
