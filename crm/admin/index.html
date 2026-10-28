@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="robots" content="noindex,nofollow,noarchive"/>
+<title>CRM HSK · An Châu Group</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#28231e;background:#fffbf5}
+*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button{cursor:pointer}
+header{background:#fff;border-bottom:1px solid #f0e5d9;padding:22px max(20px,calc((100% - 1180px)/2))}header strong{font-size:24px;letter-spacing:-.04em}header span{font-size:13px;color:#846f5a;margin-left:11px}
+main{width:min(1180px,calc(100% - 32px));margin:34px auto 60px}
+.card{background:#fff;border:1px solid #eddfca;border-radius:20px;padding:22px;margin-bottom:18px;box-shadow:0 10px 30px rgba(102,69,37,.035)}
+h1{font-size:28px;letter-spacing:-.05em;margin:0 0 8px}h2{font-size:19px;letter-spacing:-.025em;margin:0 0 16px}.muted{color:#796b60;font-size:13px;line-height:1.6}
+.config{display:grid;grid-template-columns:1.2fr 1fr auto;gap:12px;align-items:end}.config label,.filters label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:800;color:#65584b}
+input,select{width:100%;padding:12px 13px;border:1px solid #e4d6c6;border-radius:11px;background:#fff;color:#35291f;min-height:45px}
+button{border:0;border-radius:999px;padding:12px 19px;background:#ef682d;color:#fff;font-weight:800;min-height:45px}
+button.secondary{background:#fff6e6;color:#af4d22;border:1px solid #f3dac3}button:disabled{opacity:.45;cursor:not-allowed}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.filters label{min-width:160px}
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.stat{padding:18px;border-radius:16px;background:#fff2df;border:1px solid #f0ddbd}
+.stat strong{display:block;font-size:28px;color:#cd5524}.stat span{font-size:12px;color:#776557}
+.table-wrap{overflow:auto;border:1px solid #f0e4d8;border-radius:14px}table{border-collapse:collapse;width:100%;min-width:1100px}
+th,td{font-size:12px;text-align:left;padding:12px 10px;border-bottom:1px solid #f0e8e0;vertical-align:middle}
+th{background:#fff5e7;color:#745d4d;position:sticky;top:0}
+td input,td select{padding:8px 10px;min-height:36px;font-size:12px;min-width:110px}
+td button{min-height:35px;padding:7px 11px;font-size:12px}
+#notice{min-height:24px;font-size:13px;margin:10px 0;color:#a34f22}
+#notice.error{color:#b12222}#notice.ok{color:#286b49}
+small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;background:#ecaa36;display:inline-block;margin-right:7px}
+@media(max-width:780px){.config{grid-template-columns:1fr}.stat-row{grid-template-columns:1fr 1fr}.filters{width:100%}.filters label{flex:1 1 120px}.card{padding:17px}header{padding:18px 16px}header span{display:block;margin:5px 0 0}}
+</style>
+</head>
+<body>
+<header><strong>AN CHÂU · CRM HSK</strong><span>Quản lý tuyển sinh tiếng Trung · Dữ liệu độc lập V1.0</span></header>
+<main>
+<div class="card">
+<h1>Quản lý Lead HSK</h1>
+<p class="muted">Chỉ dành cho nhân sự được An Châu ủy quyền. Dữ liệu khách hàng không được lưu vào GitHub. Token chỉ nằm trong bộ nhớ tab đang mở, không ghi vào bộ nhớ trình duyệt.</p>
+<div class="config">
+<label>Địa chỉ Worker API<input id="base" type="url" placeholder="https://your-worker.workers.dev" autocomplete="off"/></label>
+<label>Token quản trị<input id="token" type="password" placeholder="Nhập ADMIN_TOKEN" autocomplete="off"/></label>
+<button id="connect" type="button">Kết nối CRM</button>
+</div>
+<div id="notice" role="status" aria-live="polite">Chưa kết nối cơ sở dữ liệu.</div>
+</div>
+<div class="card">
+<h2>Tổng quan tiếp nhận</h2>
+<div class="stat-row">
+<div class="stat"><strong id="total">—</strong><span>Tổng Lead</span></div>
+<div class="stat"><strong id="new">—</strong><span>Lead mới</span></div>
+<div class="stat"><strong id="contacted">—</strong><span>Đã liên hệ</span></div>
+<div class="stat"><strong id="deposit">—</strong><span>Đã đặt cọc</span></div>
+</div>
+</div>
+<div class="card">
+<div class="toolbar">
+<h2>Danh sách học sinh quan tâm</h2>
+<div class="filters">
+<label>Cơ sở<select id="filterOffice"><option value="">Cả hai cơ sở</option><option value="hn">Hà Nội</option><option value="na">Nghệ An</option></select></label>
+<label>Trạng thái<select id="filterStatus"><option value="">Tất cả</option><option value="new">Lead mới</option><option value="contacted">Đã liên hệ</option><option value="invited">Mời đến VP</option><option value="deposit">Đặt cọc</option><option value="enrolled">Nhập học</option><option value="lost">Không phù hợp</option></select></label>
+<button id="refresh" class="secondary" type="button">Tải lại</button>
+<button id="export" class="secondary" type="button">Xuất CSV</button>
+</div>
+</div>
+<div class="table-wrap"><table><thead><tr>
+<th>Thời gian</th><th>Họ tên</th><th>Điện thoại</th><th>Cơ sở</th><th>Khóa</th><th>Ca</th><th>Nguồn đầu</th><th>Trạng thái</th><th>Sale phụ trách</th><th>Cập nhật</th>
+</tr></thead><tbody id="rows"><tr><td colspan="10">Kết nối CRM để tải danh sách.</td></tr></tbody></table></div>
+<p class="muted">Trạng thái gồm Lead mới → Đã liên hệ → Mời lên văn phòng → Đặt cọc → Nhập học. Dữ liệu xuất có mã Lead ổn định cho lần chuyển sang CRM chính.</p>
+</div>
+</main>
+<script>
+(function(){
+"use strict";
+var apiBase="",adminToken="";
+var $=function(id){return document.getElementById(id)};
+var statusNames={new:"Lead mới",contacted:"Đã liên hệ",invited:"Mời đến VP",deposit:"Đặt cọc",enrolled:"Nhập học",lost:"Không phù hợp"};
+var officeNames={hn:"Hà Nội",na:"Nghệ An"};
+var courses={hsk1:"HSK 1",hsk2:"HSK 2",hsk3:"HSK 3",combo:"Combo 1–3",unsure:"Cần tư vấn"};
+function tell(msg,error){$("notice").textContent=msg;$("notice").className=error?"error":"ok"}
+function td(text){var cell=document.createElement("td");cell.textContent=String(text==null?"":text);return cell}
+function fmt(dt){try{return new Date(dt).toLocaleString("vi-VN",{timeZone:"Asia/Ho_Chi_Minh",dateStyle:"short",timeStyle:"short"})}catch{return dt||""}}
+async function request(path,opts){
+ if(!apiBase||!adminToken)throw Error("Chưa kết nối.");
+ var response=await fetch(apiBase+path,Object.assign({headers:{"Authorization":"Bearer "+adminToken,"Accept":"application/json"},cache:"no-store"},opts||{}));
+ if(!response.ok)throw Error("Yêu cầu thất bại (HTTP "+response.status+"). Kiểm tra API/token.");
+ return response;
+}
+async function refresh(){
+ if(!apiBase||!adminToken){tell("Cần nhập Worker URL và token quản trị.",true);return}
+ tell("Đang tải dữ liệu...",false);
+ try{
+  var qs=new URLSearchParams({limit:"200"});
+  if($("filterOffice").value)qs.set("office",$("filterOffice").value);
+  if($("filterStatus").value)qs.set("status",$("filterStatus").value);
+  var responses=await Promise.all([request("/api/admin/stats"),request("/api/admin/leads?"+qs.toString())]);
+  var stats=await responses[0].json(),data=await responses[1].json();
+  $("total").textContent=stats.total||0;
+  var totals={};(stats.by_status||[]).forEach(function(x){totals[x.status]=x.count});
+  ["new","contacted","deposit"].forEach(function(k){$(k).textContent=totals[k]||0});
+  var body=$("rows");body.replaceChildren();
+  if(!data.items||data.items.length===0){var line=document.createElement("tr");var cell=td("Chưa có Lead trong bộ lọc này.");cell.colSpan=10;line.append(cell);body.append(line)}
+  (data.items||[]).forEach(function(row){
+    var tr=document.createElement("tr");
+    [fmt(row.created_at),row.full_name,row.phone,officeNames[row.office]||row.office,courses[row.course]||row.course,row.preferred_slot||"—",row.first_source_code].forEach(function(v){tr.append(td(v))});
+    var status=document.createElement("select");
+    Object.keys(statusNames).forEach(function(key){var opt=document.createElement("option");opt.value=key;opt.textContent=statusNames[key];status.append(opt)});
+    status.value=row.status;var tdStatus=document.createElement("td");tdStatus.append(status);tr.append(tdStatus);
+    var owner=document.createElement("input");owner.type="text";owner.maxLength=80;owner.value=row.assigned_to||"";owner.placeholder="Tên Sale";
+    var tdOwner=document.createElement("td");tdOwner.append(owner);tr.append(tdOwner);
+    var save=document.createElement("button");save.type="button";save.textContent="Lưu";
+    save.addEventListener("click",async function(){
+      save.disabled=true;
+      try{
+        await request("/api/admin/leads/"+encodeURIComponent(row.id),{method:"PATCH",headers:{"Authorization":"Bearer "+adminToken,"Content-Type":"application/json"},body:JSON.stringify({status:status.value,assigned_to:owner.value.trim()})});
+        tell("Đã cập nhật Lead "+row.id.slice(0,8)+".",false);await refresh();
+      }catch(e){tell(e.message,true)}finally{save.disabled=false}
+    });
+    var tdSave=document.createElement("td");tdSave.append(save);tr.append(tdSave);body.append(tr);
+  });
+  tell("Đã tải "+(data.items||[]).length+" Lead. Danh sách tối đa 200 Lead/trang, xuất CSV để xem toàn bộ.",false);
+ }catch(e){tell(e.message,true)}
+}
+$("connect").addEventListener("click",function(){
+ try{
+  var url=new URL($("base").value.trim());
+  if(url.protocol!=="https:")throw Error("API phải dùng HTTPS.");
+  apiBase=url.origin;adminToken=$("token").value.trim();
+  if(adminToken.length<32)throw Error("Token quản trị tối thiểu 32 ký tự.");
+  $("token").value="";
+  refresh();
+ }catch(e){tell(e.message,true)}
+});
+["refresh","filterOffice","filterStatus"].forEach(function(id){$(id).addEventListener(id==="refresh"?"click":"change",refresh)});
+$("export").addEventListener("click",async function(){
+ try{
+  var response=await request("/api/admin/export");
+  var blob=await response.blob();var url=URL.createObjectURL(blob);
+  var a=document.createElement("a");a.href=url;a.download="hsk-crm-export.csv";document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);tell("Đã xuất dữ liệu CSV.",false);
+ }catch(e){tell(e.message,true)}
+});
+})();
+</script>
+</body>
+</html>
