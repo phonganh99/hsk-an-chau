@@ -192,8 +192,20 @@ async function refresh(){
 
 
 async function zaloCheck(){
+ const btn=$("zaloCheck");
+ if(!apiBase||!adminToken){
+   $("zaloMessage").textContent="Anh đã vào trang CRM, nhưng cần nhấn Kết nối CRM bằng token quản trị trước khi kiểm tra Zalo.";
+   $("zaloState").textContent="Chưa xác thực kết nối quản trị trong tab này.";
+   return;
+ }
+ if(btn.disabled)return;
+ btn.disabled=true;
+ btn.textContent="Đang kiểm tra...";
+ $("zaloMessage").textContent="Đang kiểm tra Worker và Zalo Bot...";
+ const controller=new AbortController();
+ const timeout=setTimeout(()=>controller.abort(),9000);
  try {
-   const r=await request("/api/admin/zalo/status");
+   const r=await request("/api/admin/zalo/status",{signal:controller.signal});
    const data=await r.json();
    $("zaloState").textContent="Bot Token: "+(data.bot_ready?"đã cấu hình":"chưa cấu hình")+
      " · Webhook Secret: "+(data.webhook_secret_ready?"đã cấu hình":"chưa cấu hình")+
@@ -202,10 +214,18 @@ async function zaloCheck(){
      " · Thông báo đang chờ: "+(data.pending||0);
    $("zaloMessage").textContent=data.paired?"Bot đã ghép. Anh có thể thử gửi tin.":
      data.webhook_url_matches===false?"Zalo Bot đang trỏ sai Webhook URL. Cần cập nhật đúng URL trong Zalo Bot Creator.":
-     "Chưa ghép cuộc trò chuyện. Tạo mã ghép mới và nhắn riêng cho bot.";
- }catch(e){$("zaloMessage").textContent=e.message}
+     "Bot chưa ghép cuộc trò chuyện. Anh có thể tạo mã ghép mới và nhắn riêng cho bot.";
+ }catch(e){
+   $("zaloMessage").textContent=e.name==="AbortError"?
+      "Kiểm tra quá thời gian 9 giây. CRM vẫn đăng nhập được; có thể Zalo API đang phản hồi chậm. Hãy thử lại.":
+      "Không lấy được trạng thái Zalo: "+e.message;
+ }finally{
+   clearTimeout(timeout);
+   btn.disabled=false;
+   btn.textContent="Kiểm tra kết nối";
+ }
 }
-$("zaloCheck").addEventListener("click",zaloCheck);
+$("zaloCheck").addEventListener("click",()=>{void zaloCheck();});
 $("zaloPair").addEventListener("click",async function(){
  const btn=this;btn.disabled=true;
  try {
