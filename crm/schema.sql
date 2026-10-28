@@ -16,7 +16,11 @@ CREATE TABLE IF NOT EXISTS lead_sources (
 );
 INSERT OR IGNORE INTO lead_sources(code,label,kind) VALUES
  ('direct','Landing HSK trực tiếp','direct'),
- ('marketing','Marketing An Châu','marketing');
+ ('marketing','Marketing An Châu','marketing'),
+ ('zalo_sale','Zalo Sale','staff'),
+ ('phone','Gọi điện trực tiếp','staff'),
+ ('walkin','Khách đến văn phòng','staff'),
+ ('other','Nguồn thủ công khác','staff');
 
 CREATE TABLE IF NOT EXISTS opportunities (
   id TEXT PRIMARY KEY,
@@ -47,3 +51,18 @@ CREATE TABLE IF NOT EXISTS lead_events (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_opportunity ON lead_events(opportunity_id,created_at DESC);
+
+-- New-lead Telegram outbox. Never store students' phone numbers or names in notification payloads.
+CREATE TABLE IF NOT EXISTS notification_outbox (
+  id TEXT PRIMARY KEY,
+  opportunity_id TEXT NOT NULL REFERENCES opportunities(id),
+  channel TEXT NOT NULL DEFAULT 'telegram',
+  event_type TEXT NOT NULL DEFAULT 'new_lead',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(opportunity_id,channel,event_type)
+);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_status ON notification_outbox(status,created_at);
