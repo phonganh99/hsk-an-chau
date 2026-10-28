@@ -241,12 +241,16 @@ async function zaloSyncWebhook(env){
 
 
 async function zaloApiCall(env,method,payload={},timeout=6000){
-  const res=await fetch("https://bot-api.zaloplatforms.com/bot"+env.ZALO_BOT_TOKEN+"/"+method,{
-    method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(timeout)
-  });
+  let res;
+  try{
+    res=await fetch("https://bot-api.zaloplatforms.com/bot"+env.ZALO_BOT_TOKEN+"/"+method,{
+      method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(timeout)
+    });
+  }catch(e){throw Error(e?.name==="TimeoutError"||e?.name==="AbortError"?"zalo_timeout":"zalo_network_error")}
   if(!res.ok)throw Error("zalo_http_"+res.status);
-  const data=await res.json();
-  if(data?.ok!==true)throw Error("zalo_api_error");
+  let data;
+  try{data=await res.json()}catch{throw Error("zalo_invalid_response")}
+  if(data?.ok!==true)throw Error("zalo_api_error_"+(Number.isInteger(data?.error_code)?data.error_code:"unknown"));
   return data.result;
 }
 async function zaloIdentity(env){
@@ -274,22 +278,41 @@ async function recoveryStart(env){
   if(!zaloBotConfigured(env)||!zaloWebhookConfigured(env))return reply({error:"secrets_not_ready"},503);
   if((await getZaloRecipient(env))?.chat_id)return reply({error:"already_paired"},409);
   const old=await env.DB.prepare("SELECT active,expires_at FROM zalo_recovery_session WHERE id='primary'").first();
-  if(old?.active===1&&old.expires_at>new Date().toISOString())return reply({error:"recovery_already_active"},409);
-  if(old?.active===1&&!await restoreWebhook(env))return reply({error:"webhook_restore_required"},503);
+  if(old?.active===1&&old.expires_at>new Date().toISOString())
+    return reply({error:"recovery_already_active",expires_at:old.expires_at},409);
+  if(old?.active===1){
+    const status=await getZaloWebhookInfo(env);
+    // If webhook already exists, an earlier failed attempt cannot leave an active polling session.
+    if(status.url_matches===true)
+      await env.DB.prepare("UPDATE zalo_recovery_session SET active=0 WHERE id='primary'").run();
+    else if(!await restoreWebhook(env))return reply({error:"webhook_restore_required",stage:"restore_previous_webhook"},503);
+  }
+  // Delete webhook FIRST. The previous implementation created and displayed a code
+  // even when Zalo refused to enter polling mode.
+  let deleteError=null;
+  try{await zaloApiCall(env,"deleteWebhook",{},6000)}catch(e){deleteError=String(e?.message||"zalo_unknown_error").slice(0,60)}
+  const state=await getZaloWebhookInfo(env);
+  if(state.api_status!=="ok"||state.url_matches!==false){
+    // Do not create a code or claim that polling works until Zalo confirms the URL is empty.
+    return reply({error:"zalo_delete_webhook_failed",stage:"deleteWebhook",
+      zalo_reason:deleteError||"webhook_still_active",webhook_api_status:state.api_status,
+      webhook_still_configured:state.url_matches===true},502);
+  }
   const bytes=new Uint8Array(12);crypto.getRandomValues(bytes);
   const code="HSK-"+Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("").toUpperCase();
   const hash=await sha256Text(code);
   const now=new Date().toISOString(),until=new Date(Date.now()+180000).toISOString();
-  await env.DB.prepare("INSERT INTO zalo_pair_codes(code_hash,expires_at,created_at) VALUES(?,?,?)").bind(hash,until,now).run();
-  await env.DB.prepare("INSERT INTO zalo_recovery_session(id,started_at,expires_at,code_hash,active) VALUES('primary',?,?,?,1) ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at,expires_at=excluded.expires_at,code_hash=excluded.code_hash,active=1").bind(now,until,hash).run();
-  try {
-    await zaloApiCall(env,"deleteWebhook",{},6000);
-    return reply({ok:true,command:"/bind "+code,expires_at:until});
+  try{
+    await env.DB.prepare("INSERT INTO zalo_pair_codes(code_hash,expires_at,created_at) VALUES(?,?,?)").bind(hash,until,now).run();
+    await env.DB.prepare("INSERT INTO zalo_recovery_session(id,started_at,expires_at,code_hash,active) VALUES('primary',?,?,?,1) ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at,expires_at=excluded.expires_at,code_hash=excluded.code_hash,active=1").bind(now,until,hash).run();
   }catch{
+    // If DB write fails after deleting the webhook, prioritize recovering the bot connection.
     await restoreWebhook(env);
-    return reply({error:"unable_to_enter_polling_mode"},502);
+    return reply({error:"storage_failed_webhook_restore_attempted"},503);
   }
+  return reply({ok:true,command:"/bind "+code,expires_at:until,mode:"polling"});
 }
+
 async function recoveryFinish(env){
   const rec=await env.DB.prepare("SELECT active,expires_at,code_hash FROM zalo_recovery_session WHERE id='primary'").first();
   if(!rec||rec.active!==1)return reply({error:"recovery_not_active"},409);
