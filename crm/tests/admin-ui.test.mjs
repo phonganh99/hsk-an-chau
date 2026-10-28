@@ -30,3 +30,10 @@ test("CRM verifies login via backend before clearing input token",()=>{
   assert.ok(clear>success);
   assert.match(html,/if\(res.status===401\)throw Error\("ADMIN_TOKEN chưa đúng/);
 });
+
+test("Active Zalo recovery session guides the user to finish or cancel instead of retrying start",()=>{
+  assert.match(html,/data\.error==="recovery_already_active"/);
+  assert.match(html,/Đã có phiên ghép đang hoạt động tới/);
+  assert.match(html,/Nếu anh đã gửi mã trong phiên này/);
+  assert.match(html,/Hủy \/ Khôi phục Webhook/);
+});
