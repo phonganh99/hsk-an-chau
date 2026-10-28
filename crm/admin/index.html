@@ -271,13 +271,20 @@ async function recoveryAction(path,label){
   if(!authenticated||!adminToken||!apiBase){askForLogin("Cần đăng nhập CRM để ghép Zalo dự phòng.");return}
   const controller=new AbortController();const stop=setTimeout(()=>controller.abort(),15000);
   status.textContent=label+"...";
-  if(path.endsWith("/start")){$("zaloRecoveryCode").hidden=true;$("zaloRecoveryCode").textContent="";}
+  // Preserve an existing command while it may still be valid. Only replace it
+  // after the server confirms a new recovery session was opened.
   try{
     // Read the safe, structured Zalo API error instead of reducing every failure to HTTP 502.
     const res=await fetch(apiBase+path,{method:"POST",headers:{"Authorization":"Bearer "+adminToken,"Content-Type":"application/json"},body:"{}",signal:controller.signal,cache:"no-store"});
     let data;try{data=await res.json()}catch{data={error:"invalid_api_response"}}
     if(!res.ok){
       if(res.status===401){authenticated=false;adminToken="";apiBase="";askForLogin("ADMIN_TOKEN không còn hợp lệ. Đăng nhập lại để tiếp tục.");return;}
+      if(data.error==="recovery_already_active"){
+        const until=data.expires_at?new Date(data.expires_at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):"chưa rõ";
+        status.textContent="Đã có phiên ghép đang hoạt động tới "+until+
+          ". Nếu anh đã gửi mã trong phiên này, nhấn '2. Xác nhận đã gửi mã'. Nếu không còn mã, nhấn 'Hủy / Khôi phục Webhook' rồi mới bắt đầu phiên mới.";
+        return;
+      }
       if(data.error==="zalo_delete_webhook_failed"){
         status.textContent="Zalo chưa cho phép tắt Webhook. Lý do: "+(data.zalo_reason||"không rõ")+
           " · Trạng thái API: "+(data.webhook_api_status||"chưa xác minh")+
