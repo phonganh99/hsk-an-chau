@@ -40,3 +40,28 @@ test("invalid Turnstile tokens cannot create leads",async()=>{
   const res=await worker.fetch(req("/api/leads",{method:"POST",headers:{"origin":origin,"content-type":"application/json"},body:JSON.stringify(body)}),env);
   assert.equal(res.status,422);
 });
+
+test("manual leads require bearer auth before accessing the database",async()=>{
+  const body={full_name:"Khách thử nghiệm",phone:"0912345678",office:"hn",course:"hsk1",source_code:"zalo_sale",entered_by:"Nhân viên",privacy_confirmed:true};
+  const res=await worker.fetch(req("/api/admin/leads",{method:"POST",headers:{"origin":origin,"content-type":"application/json"},body:JSON.stringify(body)}),{ADMIN_TOKEN:"s".repeat(48),DB:{}});
+  assert.equal(res.status,401);
+  assert.equal((await res.json()).error,"unauthorized");
+});
+test("manual lead requires employee name and customer notice acknowledgement",async()=>{
+  const key="s".repeat(48);
+  const body={full_name:"Khách thử nghiệm",phone:"0912345678",office:"hn",course:"hsk1",source_code:"zalo_sale",entered_by:"Nhân viên",privacy_confirmed:false};
+  const res=await worker.fetch(req("/api/admin/leads",{method:"POST",headers:{"origin":origin,"Authorization":"Bearer "+key,"Content-Type":"application/json"},body:JSON.stringify(body)}),{ADMIN_TOKEN:key,DB:{}});
+  assert.equal(res.status,422);
+  assert.equal((await res.json()).error,"invalid_fields");
+});
+test("notification retry endpoint denies anonymous callers",async()=>{
+  const res=await worker.fetch(req("/api/admin/notifications/flush",{method:"POST",headers:{"origin":origin}}),{ADMIN_TOKEN:"s".repeat(48)});
+  assert.equal(res.status,401);
+});
+test("health reports Telegram readiness without exposing credentials",async()=>{
+  const token="12345678901234567890123456789012345";
+  const res=await worker.fetch(req("/health"),{TELEGRAM_BOT_TOKEN:token,TELEGRAM_CHAT_ID:"-10012345678"});
+  const data=await res.json();
+  assert.equal(data.telegram_ready,true);
+  assert.equal(JSON.stringify(data).includes(token),false);
+});
