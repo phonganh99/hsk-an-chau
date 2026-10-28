@@ -212,13 +212,14 @@ async function getZaloWebhookInfo(env) {
 async function zaloStatus(env) {
   const target=await getZaloRecipient(env);
   const pending=await env.DB.prepare("SELECT COUNT(*) AS total FROM notification_outbox WHERE channel='zalo' AND status='pending'").first();
-  const checks=await getZaloWebhookInfo(env);
+  const [checks,identity]=await Promise.all([getZaloWebhookInfo(env),zaloIdentity(env)]);
   const audits=await env.DB.prepare("SELECT reason,count,last_seen_at FROM zalo_webhook_diagnostics ORDER BY reason").all();
+  const recovery=await env.DB.prepare("SELECT active,expires_at FROM zalo_recovery_session WHERE id='primary'").first();
   return reply({ok:true,bot_ready:zaloBotConfigured(env),webhook_secret_ready:zaloWebhookConfigured(env),
     paired:!!target?.chat_id,chat_type:target?.chat_type||null,pending:pending?.total||0,
     webhook_url:ZALO_WEBHOOK_URL,webhook_api_ok:checks.api_status==="ok",
     webhook_url_matches:checks.url_matches,webhook_api_status:checks.api_status,
-    webhook_diagnostics:audits.results||[]});
+    webhook_diagnostics:audits.results||[],bot_account:identity.name,bot_identity_status:identity.status,recovery_active:recovery?.active===1&&recovery.expires_at>new Date().toISOString(),recovery_expires_at:recovery?.active===1?recovery.expires_at:null});
 }
 async function zaloSyncWebhook(env){
   if(!zaloBotConfigured(env)||!zaloWebhookConfigured(env))
@@ -236,6 +237,92 @@ async function zaloSyncWebhook(env){
     return reply({ok:confirm.url_matches===true,verified:confirm.url_matches===true,webhook_api_status:confirm.api_status},
       confirm.url_matches===true?200:502);
   } catch {return reply({error:"zalo_webhook_unreachable"},502);}
+}
+
+
+async function zaloApiCall(env,method,payload={},timeout=6000){
+  const res=await fetch("https://bot-api.zaloplatforms.com/bot"+env.ZALO_BOT_TOKEN+"/"+method,{
+    method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(timeout)
+  });
+  if(!res.ok)throw Error("zalo_http_"+res.status);
+  const data=await res.json();
+  if(data?.ok!==true)throw Error("zalo_api_error");
+  return data.result;
+}
+async function zaloIdentity(env){
+  if(!zaloBotConfigured(env))return {name:null,status:"missing_token"};
+  try{
+    const info=await zaloApiCall(env,"getMe",{},3000);
+    return {name:cleanText(info?.account_name,80)||null,status:"ok"};
+  }catch{return {name:null,status:"unreachable"}}
+}
+async function restoreWebhook(env){
+  try {
+    await zaloApiCall(env,"setWebhook",{url:ZALO_WEBHOOK_URL,secret_token:env.ZALO_WEBHOOK_SECRET},7000);
+    const check=await getZaloWebhookInfo(env);
+    if(check.url_matches!==true)return false;
+    await env.DB.prepare("UPDATE zalo_recovery_session SET active=0 WHERE id='primary'").run();
+    return true;
+  }catch{return false}
+}
+async function recoveryAutoRestore(env){
+  if(!env.DB||!zaloBotConfigured(env)||!zaloWebhookConfigured(env))return;
+  const r=await env.DB.prepare("SELECT active,expires_at FROM zalo_recovery_session WHERE id='primary'").first();
+  if(r?.active===1&&r.expires_at<=new Date().toISOString())await restoreWebhook(env);
+}
+async function recoveryStart(env){
+  if(!zaloBotConfigured(env)||!zaloWebhookConfigured(env))return reply({error:"secrets_not_ready"},503);
+  if((await getZaloRecipient(env))?.chat_id)return reply({error:"already_paired"},409);
+  const old=await env.DB.prepare("SELECT active,expires_at FROM zalo_recovery_session WHERE id='primary'").first();
+  if(old?.active===1&&old.expires_at>new Date().toISOString())return reply({error:"recovery_already_active"},409);
+  if(old?.active===1&&!await restoreWebhook(env))return reply({error:"webhook_restore_required"},503);
+  const bytes=new Uint8Array(12);crypto.getRandomValues(bytes);
+  const code="HSK-"+Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("").toUpperCase();
+  const hash=await sha256Text(code);
+  const now=new Date().toISOString(),until=new Date(Date.now()+180000).toISOString();
+  await env.DB.prepare("INSERT INTO zalo_pair_codes(code_hash,expires_at,created_at) VALUES(?,?,?)").bind(hash,until,now).run();
+  await env.DB.prepare("INSERT INTO zalo_recovery_session(id,started_at,expires_at,code_hash,active) VALUES('primary',?,?,?,1) ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at,expires_at=excluded.expires_at,code_hash=excluded.code_hash,active=1").bind(now,until,hash).run();
+  try {
+    await zaloApiCall(env,"deleteWebhook",{},6000);
+    return reply({ok:true,command:"/bind "+code,expires_at:until});
+  }catch{
+    await restoreWebhook(env);
+    return reply({error:"unable_to_enter_polling_mode"},502);
+  }
+}
+async function recoveryFinish(env){
+  const rec=await env.DB.prepare("SELECT active,expires_at,code_hash FROM zalo_recovery_session WHERE id='primary'").first();
+  if(!rec||rec.active!==1)return reply({error:"recovery_not_active"},409);
+  const now=new Date().toISOString();
+  if(rec.expires_at<=now){
+    const restored=await restoreWebhook(env);
+    return reply({error:"recovery_expired",webhook_restored:restored},409);
+  }
+  let events=[];
+  try {
+    const raw=await zaloApiCall(env,"getUpdates",{timeout:"2"},7000);
+    events=Array.isArray(raw)?raw:Array.isArray(raw?.updates)?raw.updates:(raw&&typeof raw==="object"?[raw]:[]);
+  }catch{return reply({error:"zalo_polling_unavailable"},502)}
+  for(const item of events){
+    const event=item?.result&&typeof item.result==="object"?item.result:item;
+    const msg=event?.message,txt=typeof msg?.text==="string"?msg.text.trim():"";
+    const id=(typeof msg?.chat?.id==="string"||typeof msg?.chat?.id==="number")?String(msg.chat.id):"";
+    if(event?.event_name!=="message.text.received"||String(msg?.chat?.chat_type||"").toUpperCase()!=="PRIVATE"||!id||id.length>128||!/^\/bind HSK-[A-F0-9]{24}$/i.test(txt))continue;
+    if(await sha256Text(txt.slice(6).toUpperCase())!==rec.code_hash)continue;
+    const used=await env.DB.prepare("UPDATE zalo_pair_codes SET used_at=? WHERE code_hash=? AND used_at IS NULL AND expires_at>?").bind(now,rec.code_hash,now).run();
+    if((used.meta?.changes||0)!==1)continue;
+    await env.DB.prepare("INSERT INTO zalo_notification_target(id,chat_id,chat_type,paired_at) VALUES('primary',?,'PRIVATE',?) ON CONFLICT(id) DO UPDATE SET chat_id=excluded.chat_id,chat_type='PRIVATE',paired_at=excluded.paired_at").bind(id,now).run();
+    const restored=await restoreWebhook(env);
+    const sent=await sendZaloText(env,id,"✅ Bot An Châu HSK đã ghép với CRM. Thông báo Lead mới sẽ gửi vào hội thoại này.");
+    return reply({ok:true,paired:true,webhook_restored:restored,test_message_sent:sent});
+  }
+  return reply({ok:true,paired:false,retry:true});
+}
+async function recoveryCancel(env){
+  const row=await env.DB.prepare("SELECT active FROM zalo_recovery_session WHERE id='primary'").first();
+  if(row?.active!==1)return reply({ok:true,webhook_restored:true});
+  const restored=await restoreWebhook(env);
+  return reply({ok:restored,webhook_restored:restored},restored?200:502);
 }
 
 async function zaloSendTest(env) {
@@ -387,6 +474,9 @@ export default {
         else if(path==="/api/admin/notifications/flush"&&method==="POST")result=reply({ok:true,...await flushZaloOutbox(env,15)});
         else if(path==="/api/admin/zalo/status"&&method==="GET")result=await zaloStatus(env);
         else if(path==="/api/admin/zalo/sync-webhook"&&method==="POST")result=await zaloSyncWebhook(env);
+        else if(path==="/api/admin/zalo/recovery/start"&&method==="POST")result=await recoveryStart(env);
+        else if(path==="/api/admin/zalo/recovery/finish"&&method==="POST")result=await recoveryFinish(env);
+        else if(path==="/api/admin/zalo/recovery/cancel"&&method==="POST")result=await recoveryCancel(env);
         else if(path==="/api/admin/zalo/pair"&&method==="POST")result=await createZaloPairCode(env);
         else if(path==="/api/admin/zalo/test"&&method==="POST")result=await zaloSendTest(env);
         else if(path==="/api/admin/stats"&&method==="GET")result=await adminStats(env);
@@ -403,5 +493,8 @@ export default {
       console.error("HSK CRM request failed",String(err?.message||"unknown").slice(0,100));
       return reply({error:"internal_error"},500,cors);
     }
+  },
+  async scheduled(controller,env,ctx){
+    ctx.waitUntil(recoveryAutoRestore(env).catch(()=>{}));
   }
 };
