@@ -70,7 +70,7 @@ async function verifyTurnstile(token,env){
   const result=await challenge.json();
   return result.success===true&&result.hostname==="hsk.anchaugroup.com.vn"&&result.action==="hsk_registration";
 }
-async function postLead(req,env){
+async function postLead(req,env,ctx){
   if(req.headers.get("origin")!==SITE_ORIGIN)return reply({error:"origin_not_allowed"},403,headersForOrigin(req));
   if(!env.TURNSTILE_SECRET||!env.DB)return reply({error:"registration_not_ready"},503,headersForOrigin(req));
   let input;
@@ -109,8 +109,79 @@ async function postLead(req,env){
     .bind(course,office,preferred,level,source,now,lead.id).run();
   await env.DB.prepare("INSERT INTO lead_events(id,opportunity_id,event_type,source_code,details,created_at) VALUES(?,?,?,?,?,?)")
     .bind(crypto.randomUUID(),lead.id,lead.id===oppId?"created":"re_submitted",source,"",now).run();
+  if(lead.id===oppId){await queueNewLeadNotification(env,lead.id,now);scheduleNotification(ctx,env);}
   return reply({ok:true,lead_code:lead.id,received:true},201,headersForOrigin(req));
 }
+
+async function queueNewLeadNotification(env,leadId,now) {
+  await env.DB.prepare("INSERT OR IGNORE INTO notification_outbox(id,opportunity_id,channel,event_type,status,created_at,updated_at) VALUES(?,?,'telegram','new_lead','pending',?,?)")
+    .bind(crypto.randomUUID(),leadId,now,now).run();
+}
+function telegramConfigured(env) {
+  return typeof env.TELEGRAM_BOT_TOKEN==="string"&&env.TELEGRAM_BOT_TOKEN.length>=25&&
+    typeof env.TELEGRAM_CHAT_ID==="string"&&env.TELEGRAM_CHAT_ID.trim().length>0;
+}
+function scheduleNotification(ctx,env) {
+  if(ctx&&typeof ctx.waitUntil==="function"&&telegramConfigured(env))ctx.waitUntil(flushTelegramOutbox(env,5).catch(()=>{}));
+}
+async function flushTelegramOutbox(env,limit=10) {
+  if(!telegramConfigured(env))return {configured:false,sent:0,failed:0};
+  const pending=await env.DB.prepare("SELECT n.id,n.opportunity_id,o.course,o.office,o.first_source_code,o.created_at FROM notification_outbox n JOIN opportunities o ON o.id=n.opportunity_id WHERE n.channel='telegram' AND n.event_type='new_lead' AND n.status='pending' AND n.attempts<10 ORDER BY n.created_at ASC LIMIT ?").bind(limit).all();
+  let sent=0,failed=0;
+  for(const n of pending.results||[]){
+    const locked=await env.DB.prepare("UPDATE notification_outbox SET status='sending',attempts=attempts+1,updated_at=? WHERE id=? AND status='pending'").bind(new Date().toISOString(),n.id).run();
+    if((locked.meta?.changes||0)!==1)continue;
+    const officeName=n.office==='hn'?'Hà Nội':'Nghệ An';
+    const courseName={hsk1:'HSK 1',hsk2:'HSK 2',hsk3:'HSK 3',combo:'Combo 1–3',unsure:'Cần tư vấn'}[n.course]||'HSK';
+    // Group notifications do not include learner's name, phone number, or private notes.
+    const msg=['🔔 AN CHÂU · LEAD HSK MỚI','Mã: '+n.opportunity_id.slice(0,8),'Cơ sở: '+officeName,'Khóa: '+courseName,'Nguồn: '+n.first_source_code,'Mở CRM: https://hsk.anchaugroup.com.vn/crm/admin/'].join('\n');
+    let delivered=false;
+    try {
+      const res=await fetch('https://api.telegram.org/bot'+env.TELEGRAM_BOT_TOKEN+'/sendMessage',{
+        method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({chat_id:env.TELEGRAM_CHAT_ID,text:msg,disable_web_page_preview:true})
+      });
+      if(res.ok){const data=await res.json();delivered=data.ok===true;}
+    } catch {delivered=false;}
+    if(delivered){
+      await env.DB.prepare("UPDATE notification_outbox SET status='sent',last_error='',updated_at=? WHERE id=?").bind(new Date().toISOString(),n.id).run();
+      sent++;
+    } else {
+      await env.DB.prepare("UPDATE notification_outbox SET status='pending',last_error='telegram_delivery_failed',updated_at=? WHERE id=?").bind(new Date().toISOString(),n.id).run();
+      failed++;
+    }
+  }
+  return {configured:true,sent,failed};
+}
+async function adminCreateLead(req,env,ctx) {
+  let data;try{data=await readJson(req);}catch{return reply({error:'invalid_request'},400);}
+  const name=cleanText(data.full_name,90),phone=normalizePhone(data.phone);
+  const office=String(data.office||''),course=String(data.course||'');
+  const preferred=String(data.preferred_slot||''),level=String(data.previous_level||'');
+  const source=cleanText(data.source_code||'',48).toLowerCase();
+  const assigned=cleanText(data.assigned_to||'',80),enteredBy=cleanText(data.entered_by||'',80);
+  if(!phone||name.length<2||!OFFICES.has(office)||!COURSES.has(course)||!SLOTS.has(preferred)||!LEVELS.has(level)||
+     !/^[a-z0-9_-]{3,48}$/.test(source)||enteredBy.length<2||data.privacy_confirmed!==true)
+    return reply({error:'invalid_fields'},422);
+  const validSource=await env.DB.prepare("SELECT code FROM lead_sources WHERE code=? AND is_active=1").bind(source).first();
+  if(!validSource)return reply({error:'invalid_source'},422);
+  const now=new Date().toISOString(),contactId=crypto.randomUUID(),oppId=crypto.randomUUID();
+  await env.DB.prepare("INSERT OR IGNORE INTO contacts(id,full_name,phone,created_at,updated_at) VALUES(?,?,?,?,?)")
+    .bind(contactId,name,phone,now,now).run();
+  const contact=await env.DB.prepare("SELECT id FROM contacts WHERE phone=?").bind(phone).first();
+  if(!contact)return reply({error:'storage_failed'},503);
+  const inserted=await env.DB.prepare("INSERT OR IGNORE INTO opportunities(id,contact_id,program,course,office,preferred_slot,previous_level,status,assigned_to,first_source_code,last_source_code,privacy_notice_version,created_at,updated_at) VALUES(?,?,'HSK',?,?,?,?,'new',?,?,?,'manual-hsk-v1',?,?)")
+    .bind(oppId,contact.id,course,office,preferred,level,assigned,source,source,now,now).run();
+  const created=(inserted.meta?.changes||0)>0;
+  const lead=await env.DB.prepare("SELECT id,created_at FROM opportunities WHERE contact_id=? AND program='HSK'").bind(contact.id).first();
+  if(!lead)return reply({error:'storage_failed'},503);
+  // Audit the staff-supplied name; until personal login is added this is NOT verified identity.
+  await env.DB.prepare("INSERT INTO lead_events(id,opportunity_id,event_type,source_code,details,created_at) VALUES(?,?,?,?,?,?)")
+    .bind(crypto.randomUUID(),lead.id,created?'manual_created':'manual_duplicate',source,JSON.stringify({entered_by:enteredBy}),now).run();
+  if(created){await queueNewLeadNotification(env,lead.id,now);scheduleNotification(ctx,env);}
+  return reply({ok:true,lead_code:lead.id,created,duplicate:!created,notification_queued:created},created?201:200);
+}
+
 async function adminLeads(url,env) {
   const office=url.searchParams.get("office")||"";
   const status=url.searchParams.get("status")||"";
@@ -166,19 +237,21 @@ async function adminSources(req,env){
   return reply({ok:true,code},201);
 }
 export default {
-  async fetch(req,env) {
+  async fetch(req,env,ctx) {
     const url=new URL(req.url),path=url.pathname,method=req.method.toUpperCase();
     const cors=headersForOrigin(req);
     try {
-      if(path==="/health"&&method==="GET")return reply({ok:true,storage_ready:!!env.DB,turnstile_ready:!!env.TURNSTILE_SECRET,admin_ready:!!(env.ADMIN_TOKEN&&env.ADMIN_TOKEN.length>=32)});
+      if(path==="/health"&&method==="GET")return reply({ok:true,storage_ready:!!env.DB,turnstile_ready:!!env.TURNSTILE_SECRET,admin_ready:!!(env.ADMIN_TOKEN&&env.ADMIN_TOKEN.length>=32),telegram_ready:telegramConfigured(env)});
       if(path==="/api/leads"&&method==="OPTIONS")return req.headers.get("origin")===SITE_ORIGIN?
         new Response(null,{status:204,headers:cors}):reply({error:"origin_not_allowed"},403);
-      if(path==="/api/leads"&&method==="POST")return postLead(req,env);
+      if(path==="/api/leads"&&method==="POST")return postLead(req,env,ctx);
       if(path.startsWith("/api/admin/")){
         if(method==="OPTIONS")return req.headers.get("origin")===SITE_ORIGIN?new Response(null,{status:204,headers:cors}):reply({error:"origin_not_allowed"},403);
         if(!await isAdmin(req,env))return reply({error:"unauthorized"},401,cors);
         let result;
         if(path==="/api/admin/leads"&&method==="GET")result=await adminLeads(url,env);
+        else if(path==="/api/admin/leads"&&method==="POST")result=await adminCreateLead(req,env,ctx);
+        else if(path==="/api/admin/notifications/flush"&&method==="POST")result=reply({ok:true,...await flushTelegramOutbox(env,15)});
         else if(path==="/api/admin/stats"&&method==="GET")result=await adminStats(env);
         else if(path==="/api/admin/export"&&method==="GET")result=await adminExport(env);
         else if(path==="/api/admin/sources"&&(method==="GET"||method==="POST"))result=await adminSources(req,env);
