@@ -52,11 +52,11 @@ CREATE TABLE IF NOT EXISTS lead_events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_opportunity ON lead_events(opportunity_id,created_at DESC);
 
--- New-lead Telegram outbox. Never store students' phone numbers or names in notification payloads.
+-- New-lead notification outbox. Never store students' phone numbers or names in notification payloads.
 CREATE TABLE IF NOT EXISTS notification_outbox (
   id TEXT PRIMARY KEY,
   opportunity_id TEXT NOT NULL REFERENCES opportunities(id),
-  channel TEXT NOT NULL DEFAULT 'telegram',
+  channel TEXT NOT NULL DEFAULT 'zalo',
   event_type TEXT NOT NULL DEFAULT 'new_lead',
   status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent')),
   attempts INTEGER NOT NULL DEFAULT 0,
@@ -66,3 +66,19 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
   UNIQUE(opportunity_id,channel,event_type)
 );
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_status ON notification_outbox(status,created_at);
+
+-- An administrator pairs one private Zalo Bot conversation using a short-lived code.
+-- Bot identity/token are never stored in D1.
+CREATE TABLE IF NOT EXISTS zalo_notification_target (
+  id TEXT PRIMARY KEY CHECK(id='primary'),
+  chat_id TEXT NOT NULL,
+  chat_type TEXT NOT NULL CHECK(chat_type='PRIVATE'),
+  paired_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS zalo_pair_codes (
+  code_hash TEXT PRIMARY KEY,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_zalo_pair_codes_expiry ON zalo_pair_codes(expires_at);
