@@ -6,7 +6,7 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "an-chau-hsk-crm"
-database_id = "REPLACE_WITH_D1_DATABASE_UUID"
+database_id = "4ffc879c-83da-4012-9c9a-a6456664e25a"
 
 # Set Worker secrets: ADMIN_TOKEN (32+ chars), TURNSTILE_SECRET.
 # Never commit actual secrets to this public repository.
