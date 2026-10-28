@@ -82,3 +82,19 @@ Thông báo chỉ gồm **mã Lead (8 ký tự), cơ sở, khóa học, nguồn 
 - `POST /api/admin/notifications/flush` — gửi lại các thông báo đang chờ.
 
 **Chú ý:** Không có quyền đọc tin nhắn Zalo cá nhân của Sale; Sale cần nhập Lead thủ công nếu khách liên hệ riêng với họ. Form công khai Landing Page chưa kích hoạt nhận Lead cho đến khi hoàn tất kiểm thử và chính sách dữ liệu.
+
+## V1.3 — Chẩn đoán Zalo Bot và ghép dự phòng (28/10/2026)
+
+Màn hình CRM hiển thị tên tài khoản thực của Zalo Bot Token thông qua API `getMe`. Đối chiếu tài khoản này với bot mà nhân viên đang nhắn; Webhook URL đúng **không đồng nghĩa** Zalo đã gửi sự kiện.
+
+Nếu Webhook vẫn không nhận tin dù đúng URL:
+1. Trong CRM chọn **1. Bắt đầu ghép dự phòng**. Lệnh chỉ quản trị mới gọi được.
+2. Worker gọi `deleteWebhook` tạm thời, tạo mã `/bind HSK-...` có hiệu lực tối đa 3 phút.
+3. Gửi mã đó **qua hội thoại riêng với đúng bot** trong lúc ghép dự phòng đang hoạt động.
+4. Chọn **2. Xác nhận đã gửi mã**: Worker dùng `getUpdates` (Zalo polling) để tìm đúng mã và đối chiếu hash trong D1.
+5. Nếu ghép thành công, CRM lưu `chat_id`, tự khôi phục Webhook bằng `setWebhook` và thử gửi một tin xác nhận.
+6. Nếu không thấy tin, bấm Xác nhận thêm lần nữa trong hạn 3 phút. Bấm **Hủy / Khôi phục Webhook** để dừng sớm.
+
+Worker được gắn Cron `* * * * *` trên Cloudflare. Cron tự động thử khôi phục Webhook sau khi thời gian ghép dự phòng hết hạn. Không sử dụng chế độ dự phòng nếu Cron bị gỡ. Chế độ này chỉ để xác định chat nhận thông báo; sau đó **hoạt động bình thường vẫn qua Webhook**. Nội dung tin, danh tính người gửi, Bot Token và Secret không được log.
+
+**Lưu ý vận hành:** Trong 3 phút ghép dự phòng, Zalo Webhook bị tạm ngưng; `getUpdates` không hoạt động đồng thời với Webhook theo tài liệu Zalo. Lead vẫn được ghi vào D1 và thông báo nằm trong outbox. Không triển khai thay đổi DNS hoặc cấp ADMIN_TOKEN cho Sale.
