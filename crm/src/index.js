@@ -250,6 +250,9 @@ async function zaloApiCall(env,method,payload={},timeout=6000){
   if(!res.ok)throw Error("zalo_http_"+res.status);
   let data;
   try{data=await res.json()}catch{throw Error("zalo_invalid_response")}
+  // Zalo long-poll returns error_code 408 when no new messages arrive during
+  // the requested wait. This is a normal EMPTY poll, not a transport failure.
+  if(method==="getUpdates"&&data?.ok!==true&&data?.error_code===408)return [];
   if(data?.ok!==true)throw Error("zalo_api_error_"+(Number.isInteger(data?.error_code)?data.error_code:"unknown"));
   return data.result;
 }
