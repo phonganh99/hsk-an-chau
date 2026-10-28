@@ -100,3 +100,13 @@ test("Zalo Bot webhook accepts both documented and flat event formats when secre
   }
   assert.ok(calls.length>=4);
 });
+
+test("Admin-only Zalo webhook resync denies anonymous attempts",async()=>{
+  const res=await worker.fetch(req("/api/admin/zalo/sync-webhook",{method:"POST"}),{ADMIN_TOKEN:"s".repeat(48)});
+  assert.equal(res.status,401);
+});
+test("Authenticated webhook resync fails closed without Zalo credentials",async()=>{
+  const key="s".repeat(48);
+  const res=await worker.fetch(req("/api/admin/zalo/sync-webhook",{method:"POST",headers:{"authorization":"Bearer "+key}}),{ADMIN_TOKEN:key});
+  assert.equal(res.status,503);
+});
