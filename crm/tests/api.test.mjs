@@ -110,3 +110,19 @@ test("Authenticated webhook resync fails closed without Zalo credentials",async(
   const res=await worker.fetch(req("/api/admin/zalo/sync-webhook",{method:"POST",headers:{"authorization":"Bearer "+key}}),{ADMIN_TOKEN:key});
   assert.equal(res.status,503);
 });
+
+test("Polling recovery is administrator-only",async()=>{
+  const paths=["/api/admin/zalo/recovery/start","/api/admin/zalo/recovery/finish","/api/admin/zalo/recovery/cancel"];
+  for(const path of paths){
+    const res=await worker.fetch(req(path,{method:"POST"}),{ADMIN_TOKEN:"x".repeat(48)});
+    assert.equal(res.status,401);
+  }
+});
+test("Polling recovery start fails closed if Zalo secrets unavailable",async()=>{
+  const key="x".repeat(48);
+  const res=await worker.fetch(req("/api/admin/zalo/recovery/start",{method:"POST",headers:{"Authorization":"Bearer "+key}}),{ADMIN_TOKEN:key});
+  assert.equal(res.status,503);
+});
+test("Worker declares cron handler for automatic Webhook restoration",()=>{
+  assert.equal(typeof worker.scheduled,"function");
+});
