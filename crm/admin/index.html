@@ -197,9 +197,12 @@ async function zaloCheck(){
    const data=await r.json();
    $("zaloState").textContent="Bot Token: "+(data.bot_ready?"đã cấu hình":"chưa cấu hình")+
      " · Webhook Secret: "+(data.webhook_secret_ready?"đã cấu hình":"chưa cấu hình")+
+     " · Webhook Zalo: "+(data.webhook_url_matches===true?"đúng URL":data.webhook_url_matches===false?"SAI URL":"chưa xác minh")+
      " · Cuộc trò chuyện: "+(data.paired?"đã ghép":"chưa ghép")+
      " · Thông báo đang chờ: "+(data.pending||0);
-   $("zaloMessage").textContent=data.paired?"Bot đã ghép. Anh có thể thử gửi tin.":"Khi hai Secret đã có, tạo mã và nhắn cho bot để ghép.";
+   $("zaloMessage").textContent=data.paired?"Bot đã ghép. Anh có thể thử gửi tin.":
+     data.webhook_url_matches===false?"Zalo Bot đang trỏ sai Webhook URL. Cần cập nhật đúng URL trong Zalo Bot Creator.":
+     "Chưa ghép cuộc trò chuyện. Tạo mã ghép mới và nhắn riêng cho bot.";
  }catch(e){$("zaloMessage").textContent=e.message}
 }
 $("zaloCheck").addEventListener("click",zaloCheck);
