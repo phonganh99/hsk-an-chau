@@ -2,7 +2,7 @@
 
 CRM tạm dùng Cloudflare Worker và D1. Mã nguồn trong repository công khai, nhưng dữ liệu học sinh tuyệt đối KHÔNG lưu vào GitHub.
 
-TRẠNG THÁI: mới chuẩn bị code, CHƯA triển khai Worker, CHƯA tạo D1, CHƯA nối Form. Landing Page đang không gửi Lead.
+TRẠNG THÁI: D1 và Worker CRM HSK đã triển khai. Form Landing Page hiện CHƯA kết nối để nhận Lead thật. Zalo Bot đã tích hợp trong mã, đang chờ cấu hình Bot Token, Webhook Secret và ghép hội thoại riêng.
 
 ## Hạ tầng
 
@@ -34,7 +34,7 @@ Landing Page https://hsk.anchaugroup.com.vn (GitHub Pages) -> Worker POST /api/l
 - Một cơ hội HSK / một contact trong V1. Có thể có các cơ hội khác khi vào CRM chung.
 - Không sửa first_source_code khi nộp lại Form; cập nhật last_source_code và ghi lead_events.
 - Partner không có quyền xem hồ sơ học sinh; dữ liệu thuộc An Châu.
-- Giai đoạn đầu chỉ quản trị viên; tài khoản Sale riêng và thông báo Telegram bổ sung sau khi triển khai xác thực, không chia sẻ token quản trị.
+- Giai đoạn đầu chỉ quản trị viên; tài khoản Sale riêng cần có đăng nhập và phân quyền trước khi cấp quyền nhập Lead, không chia sẻ ADMIN_TOKEN.
 
 ## Đưa về CRM chính
 Xuất contacts, opportunities, lead_events, lead_sources. Đối chiếu contacts.phone và opportunities.id (external ID), upsert thay vì chèn mù. Giữ nguồn, trạng thái, cơ sở, Sale, lịch sử; không yêu cầu học sinh đăng ký lại.
@@ -44,24 +44,41 @@ Xuất contacts, opportunities, lead_events, lead_sources. Đối chiếu contac
 - Không có ADMIN_TOKEN phải không đọc/sửa/xuất được Lead.
 - Hoàn thiện chính sách dữ liệu, rà soát quyền truy cập, backups, quyền sử dụng ảnh và quy trình tiếp nhận.
 
-## V1.1: Nhập Lead thủ công & thông báo Telegram (28/10/2026)
+## V1.2 — Thêm Lead thủ công và thông báo Zalo Bot (28/10/2026)
 
-Trên CRM `/crm/admin/` đã có biểu mẫu **Thêm Lead thủ công**:
-- Nguồn: Zalo Sale, điện thoại, khách đến văn phòng, nguồn khác.
-- Các trường: họ tên, điện thoại, cơ sở, khóa học, ca mong muốn, trình độ, Sale phụ trách và người nhập.
-- Xác nhận đã thông báo mục đích sử dụng dữ liệu cho khách trước khi lưu.
-- `POST /api/admin/leads` chỉ dành cho **ADMIN_TOKEN**; trùng số điện thoại + chương trình HSK sẽ trả `duplicate=true`, không tạo Lead mới và không phát thông báo trùng.
-- `entered_by` hiện là tên gõ thủ công, **không phải danh tính đăng nhập đã xác minh**. Chưa cung cấp token ADMIN_TOKEN cho từng Sale. Phân quyền Sale phải triển khai auth từng nhân viên trước khi mở rộng.
+### Lead thủ công
+Biểu mẫu tại `https://hsk.anchaugroup.com.vn/crm/admin/` có các nguồn: Zalo Sale, gọi điện trực tiếp, khách đến văn phòng, khác. Một số điện thoại tương ứng một contact/Lead HSK, lặp lại sẽ không gửi thông báo mới. Chức năng hiện yêu cầu ADMIN_TOKEN, **không chia sẻ** token quản trị cho các Sale; cần đăng nhập cá nhân và phân quyền riêng trong phiên bản tiếp theo.
 
-**Telegram**: Worker lưu sự kiện Lead mới vào `notification_outbox` và chỉ gửi khi cả hai Secret đã được cấu hình tại Cloudflare **an-chau-hsk-crm-api**:
-- `TELEGRAM_BOT_TOKEN` — Token do BotFather tạo, lưu dưới Type Secret.
-- `TELEGRAM_CHAT_ID` — ID nhóm Telegram hoặc chat riêng muốn nhận thông báo, cũng lưu dưới Type Secret.
-- Mời bot vào nhóm và đảm bảo bot được phép đăng bài.
-- Chỉ gửi mã Lead, cơ sở, khóa học, nguồn và liên kết CRM, không gửi họ tên hoặc điện thoại vào nhóm.
-- Bot không được kết nối thì Lead vẫn lưu D1, `notification_outbox.status=pending`; sau khi cấu hình có thể bấm **Thử gửi thông báo Telegram** trong CRM (admin) để gửi các tin đang chờ (tối đa 15 mỗi lần).
-- Không dùng lại token từ Worker `an-chau-telegram` nếu chưa thống nhất nhóm nhận thông báo và quyền sử dụng bot.
-- Định kỳ cần bổ sung cơ chế cron/retry tự động cho lỗi mạng; hiện tại gửi mới tự động khi có đủ Secret, gửi lại dùng nút admin.
+### Zalo Bot (không dùng Telegram)
+Bot riêng **Bot An Châu HSK** sử dụng `https://bot-api.zaloplatforms.com/bot<BOT_TOKEN>/sendMessage` với `chat_id` lấy từ webhook sau khi ghép mã dùng một lần.
 
-**Zalo**: Chưa triển khai tự động gửi Zalo. Kênh chính thức yêu cầu Zalo OA và quyền OpenAPI; gửi nhóm yêu cầu nhóm GMF thuộc OA, không dùng API không chính thức trên tài khoản Zalo cá nhân. Zalo Sale liên hệ riêng hiện được ghi nhận qua biểu mẫu thủ công, không đọc trộm tin nhắn.
+Worker: `an-chau-hsk-crm-api`
+Webhook URL nhập trong Zalo Bot Creator:
 
-**Lưu ý**: Form công khai Landing Page vẫn chưa gửi Lead; việc kích hoạt cần quy trình dữ liệu cá nhân, thông báo bảo mật, thử nghiệm và cấu hình Turnstile trên website.
+```
+https://an-chau-hsk-crm-api.phonganh99.workers.dev/api/zalo/webhook
+```
+
+Tại Cloudflare Worker → Settings → Variables and Secrets, thêm **hai Secret**:
+- `ZALO_BOT_TOKEN`: token riêng do Zalo Bot Manager gửi qua tin nhắn khi tạo Bot. Tuyệt đối không đưa vào GitHub hoặc chat.
+- `ZALO_WEBHOOK_SECRET`: chuỗi bí mật dài ít nhất 32 ký tự, có thể tạo bằng `openssl rand -hex 24`; nhập cùng một giá trị vào ô **Secret Token** của Zalo Bot. Không nhầm giá trị này với Bot Token.
+
+Tại Zalo Bot Creator → Thiết lập chung: nhập Webhook URL và Secret Token, sau đó nhấn **Lưu thay đổi**. Bot chỉ nhận sự kiện từ Zalo khi header `X-Bot-Api-Secret-Token` trùng Secret Cloudflare.
+
+### Ghép bot nhận thông báo
+1. Đăng nhập CRM tại `/crm/admin/` với ADMIN_TOKEN.
+2. Phần "Thông báo Lead mới qua Zalo Bot" → **Tạo mã ghép bot**. Một mã chỉ có hiệu lực 15 phút.
+3. Nhắn riêng cho **Bot An Châu HSK** trên Zalo đúng lệnh `/bind HSK-...` do CRM hiển thị.
+4. CRM → **Kiểm tra kết nối** xác nhận "Cuộc trò chuyện: đã ghép", sau đó bấm **Gửi tin nhắn thử**.
+5. Khi có Lead hoàn toàn mới (từ Form hoặc nhập thủ công), Worker ghi `notification_outbox` kênh `zalo` rồi gửi ngay nếu bot đã ghép. Lead trùng không phát thông báo. Nếu chưa cấu hình, hàng đợi giữ trạng thái chờ, có nút **Gửi lại thông báo Zalo**.
+
+Thông báo chỉ gồm **mã Lead (8 ký tự), cơ sở, khóa học, nguồn và liên kết CRM**. Không chuyển họ tên, điện thoại, thông tin khách sang hội thoại bot. Chỉ ghép cuộc trò chuyện PRIVATE (Zalo nhóm hiện đang Beta, chưa dùng).
+
+### API
+- `POST /api/zalo/webhook` — sự kiện đến từ Zalo, xác minh header và mã /bind.
+- `GET /api/admin/zalo/status` — trạng thái Secret, ghép hội thoại, hàng đợi (yêu cầu ADMIN_TOKEN).
+- `POST /api/admin/zalo/pair` — sinh mã dùng một lần (yêu cầu ADMIN_TOKEN).
+- `POST /api/admin/zalo/test` — gửi thông báo thử.
+- `POST /api/admin/notifications/flush` — gửi lại các thông báo đang chờ.
+
+**Chú ý:** Không có quyền đọc tin nhắn Zalo cá nhân của Sale; Sale cần nhập Lead thủ công nếu khách liên hệ riêng với họ. Form công khai Landing Page chưa kích hoạt nhận Lead cho đến khi hoàn tất kiểm thử và chính sách dữ liệu.
