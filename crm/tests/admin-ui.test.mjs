@@ -15,3 +15,18 @@ test("Zalo connection button is wired to visible feedback and timeout",()=>{
   assert.match(html,/btn\.textContent="Kiểm tra kết nối"/);
   assert.match(html,/controller\.abort\(\)/);
 });
+
+test("CRM requires verified admin session before Zalo actions",()=>{
+  assert.match(html,/var apiBase="",adminToken="",authenticated=false/);
+  assert.match(html,/if\(!authenticated\|\|!apiBase\|\|!adminToken\)/);
+  assert.match(html,/askForLogin\("Anh cần đăng nhập CRM trước khi đồng bộ Webhook/);
+});
+test("CRM verifies login via backend before clearing input token",()=>{
+  const verify=html.indexOf('const res=await fetch(url.origin+"/api/admin/stats"');
+  const success=html.indexOf('apiBase=url.origin;adminToken=candidate;authenticated=true;');
+  const clear=html.lastIndexOf('$("token").value="";');
+  assert.ok(verify>0);
+  assert.ok(success>verify);
+  assert.ok(clear>success);
+  assert.match(html,/if\(res.status===401\)throw Error\("ADMIN_TOKEN chưa đúng/);
+});
