@@ -103,11 +103,13 @@ small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;backgroun
     <p id="zaloState">Kết nối CRM để kiểm tra bot và cuộc trò chuyện nhận thông báo.</p>
     <div class="zalo-actions">
       <button type="button" id="zaloCheck" class="secondary">Kiểm tra kết nối</button>
+      <button type="button" id="zaloSync" class="secondary">Đồng bộ lại Webhook</button>
       <button type="button" id="zaloPair">Tạo mã ghép bot</button>
       <button type="button" id="zaloTest" class="secondary">Gửi tin nhắn thử</button>
     </div>
     <div id="zaloCommand" class="zalo-command" hidden></div>
     <div id="zaloMessage" role="status" aria-live="polite"></div>
+    <div id="zaloAudit" class="muted" aria-live="polite"></div>
     <p class="muted">Để ghép bot: nhấn "Tạo mã ghép bot", sao chép lệnh hiển thị và gửi lệnh đó vào tin nhắn riêng với Bot An Châu HSK trên Zalo. Mã có hiệu lực 15 phút và chỉ sử dụng một lần. Không gửi lệnh vào nhóm công khai.</p>
   </div>
 </section>
@@ -209,12 +211,14 @@ async function zaloCheck(){
    const data=await r.json();
    $("zaloState").textContent="Bot Token: "+(data.bot_ready?"đã cấu hình":"chưa cấu hình")+
      " · Webhook Secret: "+(data.webhook_secret_ready?"đã cấu hình":"chưa cấu hình")+
-     " · Webhook Zalo: "+(data.webhook_url_matches===true?"đúng URL":data.webhook_url_matches===false?"SAI URL":"chưa xác minh")+
+     " · Webhook Zalo: "+(data.webhook_url_matches===true?"đúng URL":data.webhook_url_matches===false?"SAI URL":"chưa xác minh ("+(data.webhook_api_status||"chưa rõ")+")")+
      " · Cuộc trò chuyện: "+(data.paired?"đã ghép":"chưa ghép")+
      " · Thông báo đang chờ: "+(data.pending||0);
+   const audit=(data.webhook_diagnostics||[]).map(x=>x.reason+": "+x.count).join(" · ");
+   $("zaloAudit").textContent=audit?"Sự kiện Zalo đã nhận (chỉ đếm, không lưu nội dung): "+audit:"Chưa ghi nhận Webhook nào sau khi bật chẩn đoán.";
    $("zaloMessage").textContent=data.paired?"Bot đã ghép. Anh có thể thử gửi tin.":
      data.webhook_url_matches===false?"Zalo Bot đang trỏ sai Webhook URL. Cần cập nhật đúng URL trong Zalo Bot Creator.":
-     "Bot chưa ghép cuộc trò chuyện. Anh có thể tạo mã ghép mới và nhắn riêng cho bot.";
+     "Bot chưa ghép cuộc trò chuyện. Kiểm tra thống kê Webhook bên dưới, đồng bộ lại Webhook rồi tạo mã mới nếu cần.";
  }catch(e){
    $("zaloMessage").textContent=e.name==="AbortError"?
       "Kiểm tra quá thời gian 9 giây. CRM vẫn đăng nhập được; có thể Zalo API đang phản hồi chậm. Hãy thử lại.":
@@ -226,6 +230,29 @@ async function zaloCheck(){
  }
 }
 $("zaloCheck").addEventListener("click",()=>{void zaloCheck();});
+
+$("zaloSync").addEventListener("click",async function(){
+  if(!apiBase||!adminToken){
+    $("zaloMessage").textContent="Hãy kết nối CRM bằng ADMIN_TOKEN trước khi đồng bộ Webhook.";
+    return;
+  }
+  const btn=this;btn.disabled=true;btn.textContent="Đang đồng bộ...";
+  const controller=new AbortController();
+  const stop=setTimeout(()=>controller.abort(),12000);
+  try{
+    const res=await request("/api/admin/zalo/sync-webhook",{
+      method:"POST",headers:{"Authorization":"Bearer "+adminToken,"Content-Type":"application/json"},
+      body:"{}",signal:controller.signal
+    });
+    const data=await res.json();
+    $("zaloMessage").textContent=data.verified?
+      "Đã cập nhật đúng Webhook URL và Secret trên Zalo. Anh tạo mã ghép mới và gửi lệnh cho bot một lần nữa.":
+      "Zalo chưa xác nhận được Webhook. Trạng thái: "+(data.webhook_api_status||"chưa rõ");
+    await zaloCheck();
+  }catch(e){
+    $("zaloMessage").textContent=e.name==="AbortError"?"Đồng bộ Webhook hết thời gian chờ.":"Không thể đồng bộ Webhook: "+e.message;
+  }finally{clearTimeout(stop);btn.disabled=false;btn.textContent="Đồng bộ lại Webhook";}
+});
 $("zaloPair").addEventListener("click",async function(){
  const btn=this;btn.disabled=true;
  try {
