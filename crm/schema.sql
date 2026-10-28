@@ -89,3 +89,12 @@ CREATE TABLE IF NOT EXISTS zalo_webhook_diagnostics (
   count INTEGER NOT NULL DEFAULT 0,
   last_seen_at TEXT NOT NULL
 );
+
+-- Temporary, admin-controlled polling fallback when Zalo webhook does not deliver events.
+-- The worker cron restores the webhook automatically on expiry (<= 3 minutes).
+CREATE TABLE IF NOT EXISTS zalo_recovery_session (
+  id TEXT PRIMARY KEY CHECK(id='primary'),
+  started_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+);
