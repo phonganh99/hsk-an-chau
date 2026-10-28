@@ -153,3 +153,26 @@ test("Recovery start does not generate a pairing code if Zalo webhook deletion f
     assert.equal("command" in data,false);
   }finally{globalThis.fetch=realFetch;}
 });
+
+
+test("Zalo polling errors are categorized without exposing credentials or messages",async()=>{
+  const secret="s".repeat(48);
+  const db={prepare(sql){return {
+    first:async()=>({active:1,expires_at:new Date(Date.now()+100000).toISOString(),code_hash:"x".repeat(64)}),
+    bind(){return {run:async()=>({meta:{changes:1}})}}
+  }}};
+  const realFetch=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    if(String(url).endsWith("/getUpdates"))
+      return new Response(JSON.stringify({ok:false,error_code:409,description:"Sensitive upstream text"}),{status:200,headers:{"content-type":"application/json"}});
+    throw Error("Unexpected API");
+  };
+  try{
+    const res=await worker.fetch(req("/api/admin/zalo/recovery/finish",{method:"POST",headers:{"Authorization":"Bearer "+secret}}),{DB:db,ADMIN_TOKEN:secret,ZALO_BOT_TOKEN:"t".repeat(36)});
+    assert.equal(res.status,502);
+    const data=await res.json();
+    assert.equal(data.error,"zalo_polling_unavailable");
+    assert.equal(data.zalo_reason,"zalo_api_error_409");
+    assert.equal(JSON.stringify(data).includes("Sensitive upstream text"),false);
+  }finally{globalThis.fetch=realFetch}
+});
