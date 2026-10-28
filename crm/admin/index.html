@@ -245,10 +245,10 @@ $("zaloSync").addEventListener("click",async function(){
       body:"{}",signal:controller.signal
     });
     const data=await res.json();
-    $("zaloMessage").textContent=data.verified?
-      "Đã cập nhật đúng Webhook URL và Secret trên Zalo. Anh tạo mã ghép mới và gửi lệnh cho bot một lần nữa.":
-      "Zalo chưa xác nhận được Webhook. Trạng thái: "+(data.webhook_api_status||"chưa rõ");
     await zaloCheck();
+    $("zaloMessage").textContent=data.verified?
+      "Đã đồng bộ và xác minh Webhook URL trên Zalo. Anh tạo mã ghép mới và nhắn riêng cho bot một lần nữa.":
+      "Zalo chưa xác nhận được Webhook. Trạng thái: "+(data.webhook_api_status||"chưa rõ");
   }catch(e){
     $("zaloMessage").textContent=e.name==="AbortError"?"Đồng bộ Webhook hết thời gian chờ.":"Không thể đồng bộ Webhook: "+e.message;
   }finally{clearTimeout(stop);btn.disabled=false;btn.textContent="Đồng bộ lại Webhook";}
