@@ -188,7 +188,21 @@ async function createZaloPairCode(env) {
 async function zaloStatus(env) {
   const target=await getZaloRecipient(env);
   const pending=await env.DB.prepare("SELECT COUNT(*) AS total FROM notification_outbox WHERE channel='zalo' AND status='pending'").first();
-  return reply({ok:true,bot_ready:zaloBotConfigured(env),webhook_secret_ready:zaloWebhookConfigured(env),paired:!!target?.chat_id,chat_type:target?.chat_type||null,pending:pending?.total||0,webhook_url:"https://an-chau-hsk-crm-api.phonganh99.workers.dev/api/zalo/webhook"});
+  const expectedUrl="https://an-chau-hsk-crm-api.phonganh99.workers.dev/api/zalo/webhook";
+  let webhookVerified=null,webhookApiOk=false;
+  if(zaloBotConfigured(env)){
+    try{
+      const response=await fetch('https://bot-api.zaloplatforms.com/bot'+env.ZALO_BOT_TOKEN+'/getWebhookInfo',{
+        method:'POST',headers:{'content-type':'application/json'},body:'{}'
+      });
+      if(response.ok){
+        const info=await response.json();
+        webhookApiOk=info?.ok===true;
+        if(webhookApiOk)webhookVerified=info?.result?.url===expectedUrl;
+      }
+    }catch{/* Keep status usable when Zalo API is offline. */}
+  }
+  return reply({ok:true,bot_ready:zaloBotConfigured(env),webhook_secret_ready:zaloWebhookConfigured(env),paired:!!target?.chat_id,chat_type:target?.chat_type||null,pending:pending?.total||0,webhook_url:expectedUrl,webhook_api_ok:webhookApiOk,webhook_url_matches:webhookVerified});
 }
 async function zaloSendTest(env) {
   const target=await getZaloRecipient(env);
@@ -201,12 +215,14 @@ async function zaloWebhook(req,env,ctx) {
   const signature=req.headers.get("x-bot-api-secret-token")||"";
   if(!await tokenEqual(signature,env.ZALO_WEBHOOK_SECRET))return reply({error:'unauthorized'},403);
   let body;try{body=await readJson(req);}catch{return reply({error:'invalid_request'},400);}
-  const evt=body?.result;
+  // Zalo's documented webhook wraps events in result; some actual deliveries are flat.
+  // Accept either, but always require a valid X-Bot-Api-Secret-Token header first.
+  const evt=(body?.result&&typeof body.result==='object')?body.result:body;
   if(evt?.event_name!=='message.text.received')return reply({ok:true,handled:false});
   const msg=evt.message;
   const text=typeof msg?.text==='string'?msg.text.trim():'';
-  const chatId=typeof msg?.chat?.id==='string'?msg.chat.id:'';
-  const chatType=msg?.chat?.chat_type;
+  const chatId=(typeof msg?.chat?.id==='string'||typeof msg?.chat?.id==='number')?String(msg.chat.id):'';
+  const chatType=String(msg?.chat?.chat_type||'').toUpperCase();
   // Pair only one staff member's private chat, never auto-pair a random incoming chat.
   if(chatType!=='PRIVATE'||!chatId||chatId.length>128||!/^\/bind HSK-[A-Fa-f0-9]{24}$/i.test(text))
     return reply({ok:true,handled:false});
