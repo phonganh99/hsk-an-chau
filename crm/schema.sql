@@ -96,5 +96,6 @@ CREATE TABLE IF NOT EXISTS zalo_recovery_session (
   id TEXT PRIMARY KEY CHECK(id='primary'),
   started_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
   active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
 );
