@@ -285,6 +285,11 @@ async function recoveryAction(path,label){
           ". Nếu anh đã gửi mã trong phiên này, nhấn '2. Xác nhận đã gửi mã'. Nếu không còn mã, nhấn 'Hủy / Khôi phục Webhook' rồi mới bắt đầu phiên mới.";
         return;
       }
+      if(data.error==="zalo_polling_unavailable"){
+        status.textContent="Zalo chưa trả được cập nhật: "+(data.zalo_reason||"chưa rõ lỗi")+
+          ". Worker đã ghi nhận mã lỗi để kiểm tra. Không tạo lại mã; nếu phiên còn hiệu lực, anh có thể nhấn xác nhận lần nữa hoặc để hệ thống tự kiểm tra mỗi phút.";
+        return;
+      }
       if(data.error==="zalo_delete_webhook_failed"){
         status.textContent="Zalo chưa cho phép tắt Webhook. Lý do: "+(data.zalo_reason||"không rõ")+
           " · Trạng thái API: "+(data.webhook_api_status||"chưa xác minh")+
@@ -301,7 +306,8 @@ async function recoveryAction(path,label){
       status.textContent=data.paired?
        "Đã ghép thành công! "+(data.test_message_sent?"Zalo đã nhận lệnh gửi tin xác nhận.":"Tin nhắn xác nhận chưa gửi được.")+
        (data.webhook_restored?" Webhook đã khôi phục.":" Webhook đang được khôi phục tự động."):
-       "Chưa tìm thấy mã ghép trong Zalo. Anh kiểm tra đã gửi đúng bot, sau đó bấm Xác nhận đã gửi mã lần nữa trong thời hạn.";
+       "Zalo chưa trả về đúng mã ghép ("+(typeof data.update_count==="number"?data.update_count:"?")+
+       " sự kiện được đọc). Anh không cần tạo mã mới: Worker cũng tự kiểm tra mỗi phút trong thời hạn ghép.";
       if(data.paired)$("zaloRecoveryCode").hidden=true;
     }else{
       status.textContent=data.webhook_restored?"Đã hủy ghép dự phòng và khôi phục Webhook.":"Chưa khôi phục được Webhook, hệ thống sẽ tự thử lại.";
