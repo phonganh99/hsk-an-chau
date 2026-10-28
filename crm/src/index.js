@@ -332,7 +332,16 @@ async function recoveryFinish(env){
   try {
     const raw=await zaloApiCall(env,"getUpdates",{timeout:"2"},7000);
     events=Array.isArray(raw)?raw:Array.isArray(raw?.updates)?raw.updates:(raw&&typeof raw==="object"?[raw]:[]);
-  }catch{return reply({error:"zalo_polling_unavailable"},502)}
+  }catch(e){
+    const kind=String(e?.message||"zalo_unknown_error").slice(0,65);
+    // Store only an allowlisted error category. Never persist webhook payload or token.
+    const safeReason=/^zalo_(?:timeout|network_error|invalid_response|api_error_(?:[0-9]{1,5}|unknown)|http_[0-9]{3})$/.test(kind)?kind:"zalo_unknown_error";
+    try{
+      await env.DB.prepare("INSERT INTO zalo_webhook_diagnostics(reason,count,last_seen_at) VALUES(?,1,?) ON CONFLICT(reason) DO UPDATE SET count=count+1,last_seen_at=excluded.last_seen_at")
+        .bind("poll_"+safeReason,new Date().toISOString()).run();
+    }catch{}
+    return reply({error:"zalo_polling_unavailable",stage:"getUpdates",zalo_reason:safeReason,retry:true},502);
+  }
   for(const item of events){
     const event=item?.result&&typeof item.result==="object"?item.result:item;
     const msg=event?.message,txt=typeof msg?.text==="string"?msg.text.trim():"";
@@ -346,7 +355,11 @@ async function recoveryFinish(env){
     const sent=await sendZaloText(env,id,"✅ Bot An Châu HSK đã ghép với CRM. Thông báo Lead mới sẽ gửi vào hội thoại này.");
     return reply({ok:true,paired:true,webhook_restored:restored,test_message_sent:sent});
   }
-  return reply({ok:true,paired:false,retry:true});
+  try{
+    await env.DB.prepare("INSERT INTO zalo_webhook_diagnostics(reason,count,last_seen_at) VALUES('poll_no_matching_code',1,?) ON CONFLICT(reason) DO UPDATE SET count=count+1,last_seen_at=excluded.last_seen_at")
+      .bind(new Date().toISOString()).run();
+  }catch{}
+  return reply({ok:true,paired:false,retry:true,update_count:events.length});
 }
 async function recoveryCancel(env){
   const row=await env.DB.prepare("SELECT active FROM zalo_recovery_session WHERE id='primary'").first();
@@ -525,6 +538,14 @@ export default {
     }
   },
   async scheduled(controller,env,ctx){
-    ctx.waitUntil(recoveryAutoRestore(env).catch(()=>{}));
+    ctx.waitUntil((async()=>{
+      if(!env.DB||!zaloBotConfigured(env)||!zaloWebhookConfigured(env))return;
+      const rec=await env.DB.prepare("SELECT active,expires_at,code_hash FROM zalo_recovery_session WHERE id='primary'").first();
+      if(rec?.active!==1)return;
+      if(rec.expires_at<=new Date().toISOString()){await recoveryAutoRestore(env);return;}
+      // Check newly-arrived Zalo command once per minute while in the short-lived
+      // recovery window, so manual confirmation is not the only way to pair.
+      if(rec.code_hash)await recoveryFinish(env);
+    })().catch(()=>{}));
   }
 };
