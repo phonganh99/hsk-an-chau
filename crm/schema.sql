@@ -82,3 +82,10 @@ CREATE TABLE IF NOT EXISTS zalo_pair_codes (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_zalo_pair_codes_expiry ON zalo_pair_codes(expires_at);
+
+-- Aggregate counters only. No message content, sender identifiers or tokens are stored.
+CREATE TABLE IF NOT EXISTS zalo_webhook_diagnostics (
+  reason TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 0,
+  last_seen_at TEXT NOT NULL
+);
