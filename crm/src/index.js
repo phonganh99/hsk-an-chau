@@ -293,7 +293,14 @@ async function recoveryStart(env){
   try{await zaloApiCall(env,"deleteWebhook",{},6000)}catch(e){deleteError=String(e?.message||"zalo_unknown_error").slice(0,60)}
   const state=await getZaloWebhookInfo(env);
   if(state.api_status!=="ok"||state.url_matches!==false){
-    // Do not create a code or claim that polling works until Zalo confirms the URL is empty.
+    // The delete call may have succeeded despite a lost response. If Zalo cannot
+    // confirm the webhook state, schedule automatic recovery rather than leave
+    // the bot without a webhook and without an active recovery job.
+    if(state.api_status!=="ok"){
+      const now=new Date().toISOString();
+      await env.DB.prepare("INSERT INTO zalo_recovery_session(id,started_at,expires_at,code_hash,active) VALUES('primary',?,?,?,1) ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at,expires_at=excluded.expires_at,code_hash=excluded.code_hash,active=1")
+        .bind(now,now,"").run();
+    }
     return reply({error:"zalo_delete_webhook_failed",stage:"deleteWebhook",
       zalo_reason:deleteError||"webhook_still_active",webhook_api_status:state.api_status,
       webhook_still_configured:state.url_matches===true},502);
