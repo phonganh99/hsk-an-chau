@@ -95,6 +95,34 @@
 .campus-map-link:hover{text-decoration:underline;text-underline-offset:3px}
 .campus-register{margin-top:8px}
 @media(max-width:740px){.campus-map{height:150px;border-radius:14px}.campus-map iframe{pointer-events:none}.campus-map-link{font-size:13px;margin-top:11px}.schedule-summary .campus-address{font-size:13px;line-height:1.6}}
+
+/* Refined header identity: cohesive brand lockup, responsive CTA without overlap */
+.main-header .header-row{gap:20px}
+.main-header .brand{display:inline-flex;align-items:center;gap:11px;min-width:0;flex:0 1 auto;text-decoration:none}
+.main-header .brand img{width:59px;height:59px;flex:0 0 59px;object-fit:contain;box-sizing:border-box;padding:4px;border:1px solid #F1E5D5;border-radius:13px;background:#FFFCF6}
+.main-header .brand-wordmark{display:flex;flex-direction:column;justify-content:center;gap:6px;min-width:0}
+.main-header .brand-wordmark strong{display:block;font-size:16px;font-weight:900;letter-spacing:.025em;line-height:1.14;color:#292520}
+.main-header .brand-wordmark small{display:block;font-size:11px;font-weight:650;line-height:1.25;letter-spacing:.012em;color:#8D765F;border-left:2px solid #EFA017;padding-left:8px}
+.main-header .nav{flex:0 0 auto;min-width:0}
+.main-header .nav-cta{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;flex:0 0 auto}
+@media(max-width:740px){
+  .main-header .header-row{min-height:70px;gap:10px}
+  .main-header .brand{flex:1 1 0;gap:9px;min-width:0}
+  .main-header .brand img{width:45px;height:45px;flex-basis:45px;padding:3px;border-radius:11px}
+  .main-header .brand-wordmark{gap:4px}
+  .main-header .brand-wordmark strong{font-size:clamp(11px,2.9vw,13px);line-height:1.12;letter-spacing:.008em}
+  .main-header .brand-wordmark small{font-size:clamp(8px,2.2vw,10px);letter-spacing:0;padding-left:6px}
+  .main-header .nav{flex:0 0 auto;gap:0}
+  .main-header .nav-cta{padding:9px 12px;font-size:11px;line-height:1.1;min-height:35px}
+}
+@media(max-width:380px){
+  .main-header .header-row{gap:7px}
+  .main-header .brand{gap:6px}
+  .main-header .brand img{width:40px;height:40px;flex-basis:40px;padding:2px}
+  .main-header .brand-wordmark strong{font-size:11px;letter-spacing:0}
+  .main-header .brand-wordmark small{font-size:8px;padding-left:5px}
+  .main-header .nav-cta{font-size:10px;padding:9px 10px}
+}
 </style></head>
 <body>
 <div class="scroll-progress" id="progress"></div>
