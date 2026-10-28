@@ -176,3 +176,27 @@ test("Zalo polling errors are categorized without exposing credentials or messag
     assert.equal(JSON.stringify(data).includes("Sensitive upstream text"),false);
   }finally{globalThis.fetch=realFetch}
 });
+
+
+test("Zalo polling 408 is an empty update, not HTTP 502",async()=>{
+  const key="x".repeat(48);
+  const db={prepare(sql){
+    if(sql.includes("SELECT active,expires_at,code_hash FROM zalo_recovery_session"))
+      return {first:async()=>({active:1,expires_at:new Date(Date.now()+60000).toISOString(),code_hash:"1".repeat(64)})};
+    return {bind(){return {run:async()=>({meta:{changes:1}})}}};
+  }};
+  const realFetch=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    if(String(url).endsWith("/getUpdates"))return new Response(JSON.stringify({ok:false,error_code:408,description:"request timeout"}),{status:200,headers:{"content-type":"application/json"}});
+    throw Error("unexpected upstream endpoint");
+  };
+  try{
+    const r=await worker.fetch(req("/api/admin/zalo/recovery/finish",{method:"POST",headers:{"Authorization":"Bearer "+key}}),{DB:db,ADMIN_TOKEN:key,ZALO_BOT_TOKEN:"a".repeat(30)});
+    assert.equal(r.status,200);
+    const out=await r.json();
+    assert.equal(out.ok,true);
+    assert.equal(out.paired,false);
+    assert.equal(out.retry,true);
+    assert.equal(out.update_count,0);
+  }finally{globalThis.fetch=realFetch}
+});
