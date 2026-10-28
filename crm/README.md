@@ -43,3 +43,25 @@ Xuất contacts, opportunities, lead_events, lead_sources. Đối chiếu contac
 - Gửi mới, gửi trùng, đổi khóa, HSK 2/3, source không hợp lệ, validation điện thoại, Turnstile thiếu/hết hạn.
 - Không có ADMIN_TOKEN phải không đọc/sửa/xuất được Lead.
 - Hoàn thiện chính sách dữ liệu, rà soát quyền truy cập, backups, quyền sử dụng ảnh và quy trình tiếp nhận.
+
+## V1.1: Nhập Lead thủ công & thông báo Telegram (28/10/2026)
+
+Trên CRM `/crm/admin/` đã có biểu mẫu **Thêm Lead thủ công**:
+- Nguồn: Zalo Sale, điện thoại, khách đến văn phòng, nguồn khác.
+- Các trường: họ tên, điện thoại, cơ sở, khóa học, ca mong muốn, trình độ, Sale phụ trách và người nhập.
+- Xác nhận đã thông báo mục đích sử dụng dữ liệu cho khách trước khi lưu.
+- `POST /api/admin/leads` chỉ dành cho **ADMIN_TOKEN**; trùng số điện thoại + chương trình HSK sẽ trả `duplicate=true`, không tạo Lead mới và không phát thông báo trùng.
+- `entered_by` hiện là tên gõ thủ công, **không phải danh tính đăng nhập đã xác minh**. Chưa cung cấp token ADMIN_TOKEN cho từng Sale. Phân quyền Sale phải triển khai auth từng nhân viên trước khi mở rộng.
+
+**Telegram**: Worker lưu sự kiện Lead mới vào `notification_outbox` và chỉ gửi khi cả hai Secret đã được cấu hình tại Cloudflare **an-chau-hsk-crm-api**:
+- `TELEGRAM_BOT_TOKEN` — Token do BotFather tạo, lưu dưới Type Secret.
+- `TELEGRAM_CHAT_ID` — ID nhóm Telegram hoặc chat riêng muốn nhận thông báo, cũng lưu dưới Type Secret.
+- Mời bot vào nhóm và đảm bảo bot được phép đăng bài.
+- Chỉ gửi mã Lead, cơ sở, khóa học, nguồn và liên kết CRM, không gửi họ tên hoặc điện thoại vào nhóm.
+- Bot không được kết nối thì Lead vẫn lưu D1, `notification_outbox.status=pending`; sau khi cấu hình có thể bấm **Thử gửi thông báo Telegram** trong CRM (admin) để gửi các tin đang chờ (tối đa 15 mỗi lần).
+- Không dùng lại token từ Worker `an-chau-telegram` nếu chưa thống nhất nhóm nhận thông báo và quyền sử dụng bot.
+- Định kỳ cần bổ sung cơ chế cron/retry tự động cho lỗi mạng; hiện tại gửi mới tự động khi có đủ Secret, gửi lại dùng nút admin.
+
+**Zalo**: Chưa triển khai tự động gửi Zalo. Kênh chính thức yêu cầu Zalo OA và quyền OpenAPI; gửi nhóm yêu cầu nhóm GMF thuộc OA, không dùng API không chính thức trên tài khoản Zalo cá nhân. Zalo Sale liên hệ riêng hiện được ghi nhận qua biểu mẫu thủ công, không đọc trộm tin nhắn.
+
+**Lưu ý**: Form công khai Landing Page vẫn chưa gửi Lead; việc kích hoạt cần quy trình dữ liệu cá nhân, thông báo bảo mật, thử nghiệm và cấu hình Turnstile trên website.
