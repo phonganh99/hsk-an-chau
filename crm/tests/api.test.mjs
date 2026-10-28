@@ -76,3 +76,27 @@ test("Admin Zalo pairing only works for authenticated admin",async()=>{
   const res=await worker.fetch(req("/api/admin/zalo/pair",{method:"POST"}),{ADMIN_TOKEN:"s".repeat(48)});
   assert.equal(res.status,401);
 });
+
+test("Zalo Bot webhook accepts both documented and flat event formats when secret matches",async()=>{
+  const secret="s".repeat(48);
+  const calls=[];
+  const db={prepare(sql){
+    return {bind(...args){
+      calls.push({statement:sql.slice(0,60),boundCount:args.length});
+      return {
+        run:async()=>({meta:{changes:1}})
+      };
+    }};
+  }};
+  const event={event_name:"message.text.received",message:{
+    chat:{id:"private-chat-test",chat_type:"PRIVATE"},
+    text:"/bind HSK-0123456789ABCDEF01234567"
+  }};
+  for(const payload of [event,{ok:true,result:event}]){
+    const reqOptions={method:"POST",headers:{"content-type":"application/json","x-bot-api-secret-token":secret},body:JSON.stringify(payload)};
+    const res=await worker.fetch(req("/api/zalo/webhook",reqOptions),{ZALO_WEBHOOK_SECRET:secret,DB:db});
+    assert.equal(res.status,200);
+    assert.equal((await res.json()).handled,true);
+  }
+  assert.ok(calls.length>=4);
+});
