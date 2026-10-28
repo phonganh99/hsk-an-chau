@@ -126,3 +126,30 @@ test("Polling recovery start fails closed if Zalo secrets unavailable",async()=>
 test("Worker declares cron handler for automatic Webhook restoration",()=>{
   assert.equal(typeof worker.scheduled,"function");
 });
+
+test("Recovery start does not generate a pairing code if Zalo webhook deletion fails",async()=>{
+  const key="z".repeat(48);
+  const db={prepare(sql){
+    if(sql.includes("FROM zalo_notification_target"))return {first:async()=>null};
+    if(sql.includes("FROM zalo_recovery_session"))return {first:async()=>null};
+    throw Error("Unexpected DB query before checking deletion: "+sql.slice(0,45));
+  }};
+  const realFetch=globalThis.fetch;
+  // In this test Zalo refuses to delete and still reports the existing webhook.
+  globalThis.fetch=async url=>{
+    if(String(url).endsWith("/deleteWebhook"))return new Response(JSON.stringify({ok:false,error_code:429}),{headers:{"content-type":"application/json"}});
+    if(String(url).endsWith("/getWebhookInfo"))return new Response(JSON.stringify({ok:true,result:{url:"https://an-chau-hsk-crm-api.phonganh99.workers.dev/api/zalo/webhook"}}),{headers:{"content-type":"application/json"}});
+    throw Error("Unexpected request");
+  };
+  try{
+    const res=await worker.fetch(req("/api/admin/zalo/recovery/start",{method:"POST",headers:{"Authorization":"Bearer "+key}}),{
+      ADMIN_TOKEN:key,ZALO_BOT_TOKEN:"a".repeat(25),ZALO_WEBHOOK_SECRET:"b".repeat(40),DB:db
+    });
+    assert.equal(res.status,502);
+    const data=await res.json();
+    assert.equal(data.error,"zalo_delete_webhook_failed");
+    assert.equal(data.zalo_reason,"zalo_api_error_429");
+    assert.equal(data.webhook_still_configured,true);
+    assert.equal("command" in data,false);
+  }finally{globalThis.fetch=realFetch;}
+});
