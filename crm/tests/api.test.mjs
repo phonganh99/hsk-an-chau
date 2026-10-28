@@ -58,10 +58,21 @@ test("notification retry endpoint denies anonymous callers",async()=>{
   const res=await worker.fetch(req("/api/admin/notifications/flush",{method:"POST",headers:{"origin":origin}}),{ADMIN_TOKEN:"s".repeat(48)});
   assert.equal(res.status,401);
 });
-test("health reports Telegram readiness without exposing credentials",async()=>{
-  const token="12345678901234567890123456789012345";
-  const res=await worker.fetch(req("/health"),{TELEGRAM_BOT_TOKEN:token,TELEGRAM_CHAT_ID:"-10012345678"});
+test("health reports Zalo readiness without exposing credentials",async()=>{
+  const botToken="12345678901234567890123456789012345";
+  const webhookSecret="s".repeat(48);
+  const res=await worker.fetch(req("/health"),{ZALO_BOT_TOKEN:botToken,ZALO_WEBHOOK_SECRET:webhookSecret});
   const data=await res.json();
-  assert.equal(data.telegram_ready,true);
-  assert.equal(JSON.stringify(data).includes(token),false);
+  assert.equal(data.zalo_bot_ready,true);
+  assert.equal(data.zalo_webhook_ready,true);
+  assert.equal(JSON.stringify(data).includes(botToken),false);
+  assert.equal(JSON.stringify(data).includes(webhookSecret),false);
+});
+test("Zalo webhook requires verified secret",async()=>{
+  const res=await worker.fetch(req("/api/zalo/webhook",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({ok:true,result:{event_name:"message.text.received"}})}),{ZALO_WEBHOOK_SECRET:"s".repeat(48)});
+  assert.equal(res.status,403);
+});
+test("Admin Zalo pairing only works for authenticated admin",async()=>{
+  const res=await worker.fetch(req("/api/admin/zalo/pair",{method:"POST"}),{ADMIN_TOKEN:"s".repeat(48)});
+  assert.equal(res.status,401);
 });
