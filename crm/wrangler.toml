@@ -1,0 +1,12 @@
+name = "an-chau-hsk-crm-api"
+main = "src/index.js"
+compatibility_date = "2026-10-28"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "an-chau-hsk-crm"
+database_id = "REPLACE_WITH_D1_DATABASE_UUID"
+
+# Set Worker secrets: ADMIN_TOKEN (32+ chars), TURNSTILE_SECRET.
+# Never commit actual secrets to this public repository.
