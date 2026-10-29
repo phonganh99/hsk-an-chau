@@ -36,7 +36,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const item=$input.first().json;\\nconst e=item.body||{};\\nif(e.type!=='ai.handoff.requested'||typeof e.event_id!=='string'||!e.event_id||typeof e.lead_id!=='string'||!e.lead_id){throw new Error('invalid_handoff_event');}\\nconst channel=['web','zalo'].includes(e.channel)?e.channel:'unknown';\\nconst office=['hn','na'].includes(e.office)?e.office:'unknown';\\nreturn [{json:{accepted:true,event_id:e.event_id,lead_id:e.lead_id,channel,office,course:String(e.course||'unsure').slice(0,40),assigned_to:String(e.assigned_to||'').slice(0,100),received_at:new Date().toISOString()}}];"
+        "jsCode": "const item=$input.first().json;\nconst e=item.body||{};\nif(e.type!=='ai.handoff.requested'||typeof e.event_id!=='string'||!e.event_id||typeof e.lead_id!=='string'||!e.lead_id){throw new Error('invalid_handoff_event');}\nconst channel=['web','zalo'].includes(e.channel)?e.channel:'unknown';\nconst office=['hn','na'].includes(e.office)?e.office:'unknown';\nreturn [{json:{accepted:true,event_id:e.event_id,lead_id:e.lead_id,channel,office,course:String(e.course||'unsure').slice(0,40),assigned_to:String(e.assigned_to||'').slice(0,100),received_at:new Date().toISOString()}}];"
       }
     },
     {
