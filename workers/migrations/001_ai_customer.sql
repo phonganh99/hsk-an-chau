@@ -28,6 +28,17 @@ CREATE TABLE IF NOT EXISTS ai_webhook_events (
  attempts INTEGER NOT NULL DEFAULT 0,
  updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ai_zalo_outbox (
+ id TEXT PRIMARY KEY,
+ event_key TEXT UNIQUE NOT NULL,
+ chat_id TEXT NOT NULL,
+ text TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','dead')),
+ attempts INTEGER NOT NULL DEFAULT 0,
+ next_attempt_at TEXT NOT NULL,
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ai_zalo_outbox_pending ON ai_zalo_outbox(status,next_attempt_at);
 CREATE TABLE IF NOT EXISTS ai_rate_limits (
  bucket TEXT PRIMARY KEY,
  count INTEGER NOT NULL DEFAULT 0,
