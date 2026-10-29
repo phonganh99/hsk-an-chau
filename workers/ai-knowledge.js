@@ -12,6 +12,11 @@ export function normalizeText(input,max=1200){
   if(typeof input!=="string")return "";
   return input.replace(/[\u0000-\u001F\u007F]/g," ").trim().slice(0,max);
 }
+export function redactSensitive(text){
+  return normalizeText(text,1200)
+    .replace(/(?:\+84|0)[\d .()-]{8,14}/g,"[số liên hệ đã ẩn]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[email đã ẩn]");
+}
 export function normalizePhone(input){
   const raw=String(input||"").trim().replace(/[\s.()-]/g,"");
   const p=raw.startsWith("+84")?"0"+raw.slice(3):raw.startsWith("84")&&raw.length===11?"0"+raw.slice(2):raw;
