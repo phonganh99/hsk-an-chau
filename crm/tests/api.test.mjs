@@ -224,3 +224,78 @@ test("Zalo testWebhook returns safe structured results without secrets",async()=
     assert.equal(JSON.stringify(response).includes("t".repeat(36)),false);
   }finally{globalThis.fetch=existingFetch}
 });
+
+
+test("Polling bridge pairs only a valid private /bind and sends confirmation",async()=>{
+  const {createHash}=await import("node:crypto");
+  const code="HSK-"+"A".repeat(24);
+  const hash=createHash("sha256").update(code).digest("hex");
+  const sqlSeen=[];
+  const db={prepare(sql){
+    sqlSeen.push(sql);
+    return {
+      first:async()=>{
+        if(sql.includes("FROM zalo_polling_control"))return {mode:"pairing",webhook_removed:1,next_offset:null};
+        if(sql.includes("FROM zalo_notification_target"))return null;
+        return null;
+      },
+      bind(...args){
+        return {
+          run:async()=>{
+            if(sql.includes("UPDATE zalo_pair_codes"))assert.equal(args[1],hash);
+            return {meta:{changes:1}}
+          }
+        }
+      },
+      all:async()=>({results:[]})
+    };
+  }};
+  const origFetch=globalThis.fetch;
+  globalThis.fetch=async (url,options)=>{
+    if(String(url).endsWith("/getUpdates")){
+      assert.match(options.body,/"timeout":"2"/);
+      return new Response(JSON.stringify({ok:true,result:[{
+        event_name:"message.text.received",
+        update_id:123,
+        message:{text:"/bind "+code,chat:{chat_type:"PRIVATE",id:"private-test-chat-id"}}
+      }]}),{headers:{"content-type":"application/json"}});
+    }
+    if(String(url).endsWith("/sendMessage"))
+      return new Response(JSON.stringify({ok:true,result:{message_id:"test"}}),{headers:{"content-type":"application/json"}});
+    throw Error("unexpected Zalo upstream call");
+  };
+  try{
+    let scheduledWork;
+    await worker.scheduled({cron:"* * * * *"},{DB:db,ZALO_BOT_TOKEN:"x".repeat(36)},{waitUntil(p){scheduledWork=p}});
+    await scheduledWork;
+    assert.ok(sqlSeen.some(s=>s.includes("INSERT INTO zalo_notification_target")));
+    assert.ok(sqlSeen.some(s=>s.includes("UPDATE zalo_polling_control SET mode='paired'")));
+    assert.ok(sqlSeen.some(s=>s.includes("FROM notification_outbox")));
+  }finally{globalThis.fetch=origFetch}
+});
+test("Polling bridge 408 is idle without making a pairing",async()=>{
+  const calls=[];
+  const db={prepare(sql){
+    calls.push(sql);
+    return {
+      first:async()=>{
+        if(sql.includes("FROM zalo_polling_control"))return {mode:"pairing",webhook_removed:1,next_offset:null};
+        if(sql.includes("FROM zalo_notification_target"))return null;
+        return null
+      },
+      bind(){return{run:async()=>({meta:{changes:1}})}}
+    }
+  }};
+  const old=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    assert.match(String(url),/\/getUpdates$/);
+    return new Response(JSON.stringify({ok:false,error_code:408}),{headers:{"content-type":"application/json"}});
+  };
+  try{
+    let work;
+    await worker.scheduled({cron:"* * * * *"},{DB:db,ZALO_BOT_TOKEN:"x".repeat(36)},{waitUntil(p){work=p}});
+    await work;
+    assert.equal(calls.some(x=>x.includes("INSERT INTO zalo_notification_target")),false);
+    assert.ok(calls.some(x=>x.includes("last_status=?,last_update_count")));
+  }finally{globalThis.fetch=old}
+});
