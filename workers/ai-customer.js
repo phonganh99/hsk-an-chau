@@ -244,7 +244,10 @@ async function zaloWebhook(req,env,ctx){
   const body=await readBody(req,10000);
   const event=parseWebhookEvent(body);
   if(!event)return json({ok:true,ignored:true});
-  if(/^\/bind\s+HSK-/i.test(event.text))return json({error:"pairing_must_use_legacy"},409);
+  // Never feed the staff notification recipient into the public Customer AI.
+  const internal=await env.DB.prepare("SELECT chat_id FROM zalo_notification_target WHERE id='primary'").first();
+  if(internal?.chat_id===event.chatId)return json({ok:true,ignored_internal_staff_chat:true});
+  if(/^\/bind\s+HSK-/i.test(event.text))return json({error:"pairing_requires_original_bot_receiver"},409);
   const key=await sha("zalo:"+event.chatId+":"+(event.messageId||event.timestamp+":"+event.text));
   await env.DB.prepare("INSERT OR IGNORE INTO ai_webhook_events(event_key,status,updated_at) VALUES(?,'pending',?)").bind(key,iso()).run();
   if(ctx?.waitUntil)ctx.waitUntil(consumeZalo(env,event,key));
