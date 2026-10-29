@@ -215,11 +215,15 @@ async function zaloStatus(env) {
   const [checks,identity]=await Promise.all([getZaloWebhookInfo(env),zaloIdentity(env)]);
   const audits=await env.DB.prepare("SELECT reason,count,last_seen_at FROM zalo_webhook_diagnostics ORDER BY reason").all();
   const recovery=await env.DB.prepare("SELECT active,expires_at FROM zalo_recovery_session WHERE id='primary'").first();
+  const polling=await pollingBridgeStatus(env);
   return reply({ok:true,bot_ready:zaloBotConfigured(env),webhook_secret_ready:zaloWebhookConfigured(env),
     paired:!!target?.chat_id,chat_type:target?.chat_type||null,pending:pending?.total||0,
     webhook_url:ZALO_WEBHOOK_URL,webhook_api_ok:checks.api_status==="ok",
     webhook_url_matches:checks.url_matches,webhook_api_status:checks.api_status,
-    webhook_diagnostics:audits.results||[],bot_account:identity.name,bot_id:identity.id,bot_identity_status:identity.status,recovery_active:recovery?.active===1&&recovery.expires_at>new Date().toISOString(),recovery_expires_at:recovery?.active===1?recovery.expires_at:null});
+    webhook_diagnostics:audits.results||[],bot_account:identity.name,bot_id:identity.id,bot_identity_status:identity.status,recovery_active:recovery?.active===1&&recovery.expires_at>new Date().toISOString(),recovery_expires_at:recovery?.active===1?recovery.expires_at:null,
+    polling_mode:polling?.mode||'off',polling_webhook_removed:polling?.webhook_removed===1,
+    polling_last_poll_at:polling?.last_poll_at||null,polling_last_status:polling?.last_status||null,
+    polling_last_update_count:polling?.last_update_count||0});
 }
 async function zaloTestWebhook(env){
   // This is a diagnostic operation only. It does not change the Webhook
@@ -257,6 +261,8 @@ async function zaloTestWebhook(env){
 }
 
 async function zaloSyncWebhook(env){
+  const bridge=await pollingBridgeStatus(env);
+  if(bridge?.mode==="pairing"||bridge?.mode==="paired")return reply({error:"polling_bridge_active_do_not_enable_webhook"},409);
   if(!zaloBotConfigured(env)||!zaloWebhookConfigured(env))
     return reply({error:"zalo_secrets_not_ready"},503);
   try {
@@ -314,6 +320,8 @@ async function recoveryAutoRestore(env){
   if(r?.active===1&&r.expires_at<=new Date().toISOString())await restoreWebhook(env);
 }
 async function recoveryStart(env){
+  const bridge=await pollingBridgeStatus(env);
+  if(bridge?.mode==="pairing"||bridge?.mode==="paired")return reply({error:"polling_bridge_active_use_normal_pair"},409);
   if(!zaloBotConfigured(env)||!zaloWebhookConfigured(env))return reply({error:"secrets_not_ready"},503);
   if((await getZaloRecipient(env))?.chat_id)return reply({error:"already_paired"},409);
   const old=await env.DB.prepare("SELECT active,expires_at FROM zalo_recovery_session WHERE id='primary'").first();
@@ -405,6 +413,82 @@ async function recoveryCancel(env){
   if(row?.active!==1)return reply({ok:true,webhook_restored:true});
   const restored=await restoreWebhook(env);
   return reply({ok:restored,webhook_restored:restored},restored?200:502);
+}
+
+
+async function pollingBridgeStatus(env){
+  try{return await env.DB.prepare("SELECT mode,webhook_removed,last_poll_at,last_status,last_update_count FROM zalo_polling_control WHERE id='primary'").first()}
+  catch{return null}
+}
+async function pollingBridgeTick(env){
+  if(!env.DB||!zaloBotConfigured(env))return;
+  const control=await pollingBridgeStatus(env);
+  if(control?.mode!=="pairing")return;
+  const now=new Date().toISOString();
+  const recipient=await getZaloRecipient(env);
+  if(recipient?.chat_id){
+    await env.DB.prepare("UPDATE zalo_polling_control SET mode='paired',last_status='already_paired',updated_at=? WHERE id='primary' AND mode='pairing'").bind(now).run();
+    return;
+  }
+  if(control.webhook_removed!==1){
+    try{
+      await zaloApiCall(env,"deleteWebhook",{},7000);
+      const state=await getZaloWebhookInfo(env);
+      if(state.api_status!=="ok"||state.url_matches!==false)throw Error("poll_webhook_still_active");
+      await env.DB.prepare("UPDATE zalo_polling_control SET webhook_removed=1,last_status='webhook_deleted',updated_at=? WHERE id='primary' AND mode='pairing'").bind(now).run();
+    }catch(e){
+      const err=String(e?.message||"poll_delete_failed").slice(0,60);
+      await env.DB.prepare("UPDATE zalo_polling_control SET last_status=?,last_poll_at=?,updated_at=? WHERE id='primary' AND mode='pairing'").bind(err,now,now).run();
+      return;
+    }
+  }
+  const row=await env.DB.prepare("SELECT next_offset FROM zalo_polling_control WHERE id='primary'").first();
+  let raw;
+  try{
+    // A short, single poll per cron minute; Zalo 408 means no incoming updates.
+    raw=await zaloApiCall(env,"getUpdates",{timeout:"2",...(Number.isSafeInteger(row?.next_offset)?{offset:row.next_offset}:{})},10000);
+  }catch(e){
+    const reason=String(e?.message||"poll_unknown").slice(0,60);
+    await env.DB.prepare("UPDATE zalo_polling_control SET last_poll_at=?,last_status=?,updated_at=? WHERE id='primary' AND mode='pairing'")
+      .bind(now,reason,now).run();
+    return;
+  }
+  const payload=raw?.result&&typeof raw.result==="object"?raw.result:raw;
+  const events=Array.isArray(payload)?payload:
+    Array.isArray(payload?.updates)?payload.updates:
+    Array.isArray(payload?.events)?payload.events:
+    (payload?.message||payload?.event_name?[payload]:[]);
+  let paired=false,maxOffset=Number.isSafeInteger(row?.next_offset)?row.next_offset:null;
+  for(const entry of events.slice(0,50)){
+    if(!entry||typeof entry!=="object")continue;
+    const event=entry.result&&typeof entry.result==="object"?entry.result:entry;
+    const updateId=event.update_id??event.updateId??entry.update_id??entry.updateId;
+    if(Number.isSafeInteger(updateId)&&updateId>=0)maxOffset=Math.max(maxOffset??0,updateId+1);
+    const msg=event?.message;
+    const body=typeof msg?.text==="string"?msg.text.trim():"";
+    const chatId=(typeof msg?.chat?.id==="string"||typeof msg?.chat?.id==="number")?String(msg.chat.id):"";
+    const kind=String(msg?.chat?.chat_type||"").toUpperCase();
+    const eventName=event?.event_name;
+    if(eventName&&eventName!=="message.text.received")continue;
+    if(kind!=="PRIVATE"||!chatId||chatId.length>128||!/^\/bind HSK-[0-9a-f]{24}$/i.test(body))continue;
+    const code=body.slice(6).toUpperCase();
+    const time=new Date().toISOString();
+    const updated=await env.DB.prepare("UPDATE zalo_pair_codes SET used_at=? WHERE code_hash=? AND used_at IS NULL AND expires_at>?")
+      .bind(time,await sha256Text(code),time).run();
+    if((updated.meta?.changes||0)!==1)continue;
+    await env.DB.prepare("INSERT INTO zalo_notification_target(id,chat_id,chat_type,paired_at) VALUES('primary',?,'PRIVATE',?) ON CONFLICT(id) DO UPDATE SET chat_id=excluded.chat_id,chat_type='PRIVATE',paired_at=excluded.paired_at")
+      .bind(chatId,time).run();
+    paired=true;
+    const sent=await sendZaloText(env,chatId,"✅ Bot An Châu HSK đã kết nối CRM. Thông báo Lead mới sẽ được gửi vào cuộc trò chuyện này.");
+    await env.DB.prepare("UPDATE zalo_polling_control SET mode='paired',last_status=?,last_poll_at=?,updated_at=? WHERE id='primary'")
+      .bind(sent?"paired_confirmation_sent":"paired_confirmation_send_failed",time,time).run();
+    await flushZaloOutbox(env,10);
+    break;
+  }
+  if(!paired){
+    await env.DB.prepare("UPDATE zalo_polling_control SET last_poll_at=?,last_status=?,last_update_count=?,next_offset=?,updated_at=? WHERE id='primary' AND mode='pairing'")
+      .bind(now,events.length?"updates_no_valid_bind":"idle",events.length,maxOffset,now).run();
+  }
 }
 
 async function zaloSendTest(env) {
@@ -579,13 +663,21 @@ export default {
   },
   async scheduled(controller,env,ctx){
     ctx.waitUntil((async()=>{
+      const bridge=await pollingBridgeStatus(env);
+      if(bridge?.mode==="pairing"){
+        await pollingBridgeTick(env);
+        return;
+      }
+      if(bridge?.mode==="paired"){
+        // Scheduled outbox retry also works after any transient Zalo API failure.
+        await flushZaloOutbox(env,5);
+        return;
+      }
       if(!env.DB||!zaloBotConfigured(env)||!zaloWebhookConfigured(env))return;
       const rec=await env.DB.prepare("SELECT active,expires_at,code_hash FROM zalo_recovery_session WHERE id='primary'").first();
       if(rec?.active!==1)return;
       if(rec.expires_at<=new Date().toISOString()){await recoveryAutoRestore(env);return;}
-      // Check newly-arrived Zalo command once per minute while in the short-lived
-      // recovery window, so manual confirmation is not the only way to pair.
       if(rec.code_hash)await recoveryFinish(env);
-    })().catch(()=>{}));
+    })().catch(e=>console.error("HSK CRM scheduled task failed",String(e?.message||"unknown").slice(0,75))));
   }
 };
