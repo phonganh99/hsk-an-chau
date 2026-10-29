@@ -347,8 +347,9 @@ export const aiCustomer={
       return json({error:"not_found"},404);
     }catch(e){
       // Only safe generic diagnostic. Never log input, phone, token or raw webhook.
-      console.error("AI Customer failed",e instanceof SyntaxError?"bad_json":"server_error");
-      return json({error:"request_failed"},500,cors);
+      const invalid=e instanceof SyntaxError||e?.message==="body_too_large";
+      console.error("AI Customer failed",invalid?"bad_request":"server_error");
+      return json({error:invalid?"invalid_request":"request_failed"},invalid?400:500,cors);
     }
   },
   async scheduled(env){
