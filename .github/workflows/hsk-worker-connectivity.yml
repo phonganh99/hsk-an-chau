@@ -1,0 +1,46 @@
+name: HSK CRM - Public Webhook Connectivity
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/hsk-worker-connectivity.yml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify publicly reachable Worker health endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://an-chau-hsk-crm-api.phonganh99.workers.dev"
+          echo "Testing public Worker health URL"
+          HTTP=$(curl -sS -o /tmp/hsk-health.json -w '%{http_code}' --max-time 15 "$URL/health")
+          echo "HEALTH_STATUS=$HTTP"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Worker /health is not accessible with HTTP 200."
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          with open('/tmp/hsk-health.json') as f: d=json.load(f)
+          print('HEALTH_FIELDS', {k:v for k,v in d.items() if k in ('ok','storage_ready','zalo_bot_ready','zalo_webhook_ready')})
+          assert d.get('ok') is True
+          PY
+
+      - name: Verify unsigned Zalo webhook is rejected by Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://an-chau-hsk-crm-api.phonganh99.workers.dev/api/zalo/webhook"
+          HTTP=$(curl -sS -o /tmp/hsk-webhook.json -w '%{http_code}' --max-time 15 \
+            -X POST -H "content-type: application/json" \
+            --data '{"event_name":"message.text.received","message":{"text":"NO_AUTH_CONNECTIVITY_TEST"}}' "$URL")
+          echo "WEBHOOK_UNSIGNED_STATUS=$HTTP"
+          if [ "$HTTP" != "403" ]; then
+            echo "::error::Webhook endpoint is not reachable or is accepting unsigned requests unexpectedly."
+            exit 1
+          fi
+          echo "Webhook route is externally reachable and rejects unsigned requests."
