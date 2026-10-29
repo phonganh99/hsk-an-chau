@@ -116,8 +116,13 @@ small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;backgroun
     <div id="zaloMessage" role="status" aria-live="polite"></div>
     <div id="zaloWebhookProbeResult" role="status" aria-live="polite" class="manual-result"></div>
     <div id="zaloAudit" class="muted" aria-live="polite"></div>
+    <div id="zaloPollingBanner" class="zalo-recovery" hidden>
+      <strong>Kết nối Zalo bằng cơ chế polling</strong>
+      <p>CRM tự kiểm tra mã ghép qua Zalo mỗi phút. Không dùng Webhook trên workers.dev đang bị Zalo trả 403. Nhấn “Tạo mã ghép bot”, gửi đúng lệnh mới vào tin nhắn riêng, sau đó nhấn “Kiểm tra kết nối”.</p>
+      <p id="zaloPollingHealth" role="status" aria-live="polite">Đang kiểm tra...</p>
+    </div>
     <p id="zaloBotIdentity" class="muted"></p>
-    <div class="zalo-recovery">
+    <div class="zalo-recovery" id="zaloOldRecovery">
       <p><strong>Ghép bot dự phòng</strong> — sử dụng khi Webhook đúng URL nhưng không nhận được tin nhắn. Hệ thống tạm dùng Zalo getUpdates tối đa 3 phút và tự khôi phục Webhook.</p>
       <div class="zalo-actions">
         <button type="button" id="zaloRecoveryStart" class="secondary">1. Bắt đầu ghép dự phòng</button>
@@ -127,7 +132,7 @@ small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;backgroun
       <div id="zaloRecoveryCode" class="zalo-command" hidden></div>
       <p id="zaloRecoveryStatus" class="muted" aria-live="polite">Chưa kích hoạt ghép dự phòng.</p>
     </div>
-    <p class="muted">Để ghép bot: nhấn "Tạo mã ghép bot", sao chép lệnh hiển thị và gửi lệnh đó vào tin nhắn riêng với Bot An Châu HSK trên Zalo. Mã có hiệu lực 15 phút và chỉ sử dụng một lần. Không gửi lệnh vào nhóm công khai.</p>
+    <p class="muted">Nhấn "Tạo mã ghép bot", sao chép toàn bộ lệnh và gửi riêng cho Bot An Châu HSK trên Zalo. Mã chỉ có hiệu lực 15 phút, dùng một lần. Không gửi mã vào nhóm công khai.</p>
   </div>
 </section>
 <div class="card">
@@ -240,7 +245,7 @@ async function zaloCheck(){
    const data=await r.json();
    $("zaloState").textContent="Bot Token: "+(data.bot_ready?"đã cấu hình":"chưa cấu hình")+
      " · Webhook Secret: "+(data.webhook_secret_ready?"đã cấu hình":"chưa cấu hình")+
-     " · Webhook Zalo: "+(data.recovery_active?"tạm tắt để ghép dự phòng":data.webhook_url_matches===true?"đúng URL":data.webhook_url_matches===false?"SAI URL":"chưa xác minh ("+(data.webhook_api_status||"chưa rõ")+")")+
+     " · Nhận sự kiện: "+(data.polling_mode==="pairing"?"polling ghép bot":data.polling_mode==="paired"?"đã ghép, gửi tin trực tiếp":data.recovery_active?"ghép dự phòng":data.webhook_url_matches===true?"Webhook đúng URL":data.webhook_url_matches===false?"Webhook SAI URL":"chưa xác minh")+
      " · Cuộc trò chuyện: "+(data.paired?"đã ghép":"chưa ghép")+
      " · Thông báo đang chờ: "+(data.pending||0);
    const audit=(data.webhook_diagnostics||[]).map(x=>x.reason+": "+x.count).join(" · ");
@@ -253,8 +258,20 @@ async function zaloCheck(){
      "Đang ở chế độ ghép dự phòng (thời hạn đến "+new Date(data.recovery_expires_at).toLocaleTimeString("vi-VN")+
      "). Gửi đúng mã mới cho bot rồi nhấn Xác nhận đã gửi mã.":
      data.paired?"Đã ghép thành công, không cần chế độ dự phòng.":"Chưa ở chế độ ghép dự phòng.";
+   const pollingEnabled=data.polling_mode==="pairing"||data.polling_mode==="paired";
+   $("zaloPollingBanner").hidden=!pollingEnabled;
+   $("zaloOldRecovery").hidden=pollingEnabled;
+   $("zaloSync").disabled=pollingEnabled;
+   $("zaloWebhookProbe").disabled=pollingEnabled;
+   $("zaloPollingHealth").textContent=data.polling_mode==="paired"?
+     "Đã ghép bot. CRM gửi Lead mới qua Zalo Bot API; không cần Webhook nhận tin.":
+     "Trạng thái: "+(data.polling_last_status||"đang kích hoạt")+
+     " · Lần kiểm tra gần nhất: "+(data.polling_last_poll_at?new Date(data.polling_last_poll_at).toLocaleString("vi-VN"):"chưa có")+
+     " · Số sự kiện trong lượt: "+(data.polling_last_update_count||0)+
+     ". Sau khi gửi mã, kiểm tra lại trong CRM.";
    $("zaloMessage").textContent=data.paired?"Bot đã ghép. Anh có thể thử gửi tin.":
-     data.webhook_url_matches===false?"Zalo Bot đang trỏ sai Webhook URL. Cần cập nhật đúng URL trong Zalo Bot Creator.":
+     pollingEnabled?"CRM đang đọc lệnh ghép từ Zalo theo chu kỳ. Nhấn Tạo mã ghép bot, gửi vào Zalo một lần, rồi kiểm tra lại.":
+     data.webhook_url_matches===false?"Webhook chưa nhận được sự kiện. Kênh ghép tự động chưa sẵn sàng.":
      "Bot chưa ghép cuộc trò chuyện. Kiểm tra thống kê Webhook bên dưới, đồng bộ lại Webhook rồi tạo mã mới nếu cần.";
  }catch(e){
    $("zaloMessage").textContent=e.name==="AbortError"?
