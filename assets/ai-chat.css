@@ -1,0 +1,40 @@
+/* HSK AI Customer: isolated styles; original layout untouched. */
+.ai-chat-launch{background:#00518f!important;color:#fff!important;box-shadow:0 12px 26px #00518f33!important;position:relative}
+.ai-chat-launch svg{width:24px;height:24px}
+.ai-chat-launch[aria-expanded="true"]{background:#f36b36!important}
+.ai-chat-panel[hidden],.ai-chat-handoff[hidden],.ai-chat-init[hidden],.ai-chat-active[hidden]{display:none!important}
+.ai-chat-panel{position:fixed;z-index:60;right:90px;bottom:84px;width:min(390px,calc(100vw - 28px));height:min(620px,calc(100dvh - 106px));background:#fffdfa;border:1px solid #f2d2ad;box-shadow:0 24px 70px #3e2a1a35;border-radius:23px;display:flex;flex-direction:column;overflow:hidden;color:#312a23;font:14px/1.5 Inter,"Segoe UI",sans-serif}
+.ai-chat-panel *{box-sizing:border-box}
+.ai-chat-head{display:flex;align-items:center;gap:11px;background:linear-gradient(110deg,#00518f,#1166a1);color:#fff;padding:17px 18px}
+.ai-chat-head strong{display:block;font-size:15px}.ai-chat-head small{display:block;color:#cde6ff;font-size:10px}
+.ai-chat-avatar{width:38px;height:38px;border-radius:13px;background:#ffffff22;display:grid;place-items:center;font-weight:900;font-size:20px}
+.ai-chat-close{margin-left:auto;border:1px solid #ffffff55;color:#fff;background:transparent;width:32px;height:32px;border-radius:12px;padding:0;font-size:20px}
+.ai-chat-body{padding:15px;flex:1;min-height:0;overflow:auto;background:#fffaf2}
+.ai-chat-message{max-width:91%;padding:11px 13px;border-radius:16px;margin-bottom:12px;word-break:break-word;white-space:pre-wrap;font-size:13px}
+.ai-chat-message.bot{background:#fff;border:1px solid #efdfc9;border-bottom-left-radius:5px}
+.ai-chat-message.user{background:#e4f1fc;border:1px solid #cfe4f5;margin-left:auto;border-bottom-right-radius:5px}
+.ai-chat-message.system{background:transparent;color:#685748;font-size:11px;text-align:center;max-width:100%}
+.ai-chat-panel button{cursor:pointer}
+.ai-chat-panel button:focus-visible,.ai-chat-panel input:focus-visible,.ai-chat-panel select:focus-visible,.ai-chat-panel textarea:focus-visible,.ai-chat-panel a:focus-visible{outline:3px solid #f3b64b;outline-offset:2px}
+.ai-chat-intro{font-size:12px;color:#6f5d4c;margin:0 0 12px}
+.ai-chat-consent{display:flex;gap:9px;font-size:12px;align-items:start;margin:12px 0}
+.ai-chat-consent input{width:auto;min-height:0;margin-top:3px}
+.ai-chat-consent a,.ai-chat-footer a{color:#00518f;text-decoration:underline}
+.ai-chat-primary{background:#f36b36;border:0;color:#fff;font-size:13px;font-weight:800;border-radius:12px;padding:11px 16px;min-height:42px}
+.ai-chat-primary:disabled{opacity:.45;cursor:not-allowed}
+.ai-chat-secondary{border:1px solid #e8b999;background:#fff9ed;color:#8d472d;border-radius:12px;font-weight:800;padding:9px 12px;font-size:12px}
+.ai-chat-quick{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 5px}
+.ai-chat-quick button{border:1px solid #e5cdae;background:#fff;color:#8c4b28;border-radius:999px;padding:7px 9px;font-size:11px}
+.ai-chat-compose{padding:12px;border-top:1px solid #eee0d1;background:white}
+.ai-chat-compose textarea{display:block;width:100%;min-height:60px;max-height:140px;border-radius:12px;resize:vertical;padding:11px;border:1px solid #e5d5c5;font:13px/1.5 inherit}
+.ai-chat-compose-actions{display:flex;align-items:center;gap:7px;margin-top:9px;justify-content:space-between}
+.ai-chat-feedback{font-size:11px;color:#a44c28;margin-top:8px;min-height:16px}
+.ai-chat-footer{display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:8px 13px;border-top:1px solid #f1e9e0;background:#fffdf8}
+.ai-chat-footer a{font-weight:800}
+.ai-chat-handoff{border-top:1px solid #f1d5ba;margin-top:14px;padding-top:12px}
+.ai-chat-handoff label{font-size:11px;font-weight:700;display:block;margin:8px 0}
+.ai-chat-handoff input,.ai-chat-handoff select{margin-top:4px;padding:8px 10px;width:100%;border:1px solid #e6d4c2;background:#fff;border-radius:8px;min-height:39px}
+.ai-chat-status{font-size:11px;color:#76695d;margin:6px 0}
+.ai-chat-challenge{margin:10px 0}
+@media(max-width:740px){.ai-chat-panel{right:12px;bottom:80px;width:calc(100vw - 24px);height:min(650px,calc(100dvh - 96px));border-radius:17px}.ai-chat-head{padding:12px 14px}.ai-chat-launch svg{width:23px;height:23px}}
+@media(prefers-reduced-motion:no-preference){.ai-chat-panel{animation:aiPanelIn .2s ease-out}@keyframes aiPanelIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}}
