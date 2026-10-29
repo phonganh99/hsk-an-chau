@@ -1,4 +1,4 @@
-import {FACTS, KNOWLEDGE_VERSION, normalizeText, normalizePhone, safeFallback, isHandoffIntent, parseZaloConsult, parseWebhookEvent} from "./ai-knowledge.js";
+import {FACTS, KNOWLEDGE_VERSION, normalizeText, normalizePhone, redactSensitive, safeFallback, isHandoffIntent, parseZaloConsult, parseWebhookEvent} from "./ai-knowledge.js";
 
 const ORIGIN="https://hsk.anchaugroup.com.vn";
 const ZALO_BASE="https://bot-api.zaloplatforms.com/bot";
@@ -71,7 +71,7 @@ async function webAuth(req,env,input){
 }
 async function store(env,id,role,text){
   await env.DB.prepare("INSERT INTO ai_messages(id,session_id,role,content,created_at) VALUES(?,?,?,?,?)")
-    .bind(crypto.randomUUID(),id,role,normalizeText(text,1200),iso()).run();
+    .bind(crypto.randomUUID(),id,role,redactSensitive(text),iso()).run();
 }
 async function history(env,id){
   const data=await env.DB.prepare("SELECT role,content FROM ai_messages WHERE session_id=? AND role IN ('user','assistant') ORDER BY created_at DESC LIMIT 8").bind(id).all();
@@ -80,6 +80,7 @@ async function history(env,id){
 async function answerAI(env,message,prior){
   const fallback=safeFallback(message);
   if(!env.AI_API_KEY||!env.AI_MODEL)return {text:fallback,mode:"guided_fallback"};
+  message=redactSensitive(message);
   const source=FACTS.map(f=>"- "+f.title+": "+f.value+" ["+f.source+"]").join("\n");
   const instructions=[
     "Bạn là AI Tư vấn tuyển sinh HSK của An Châu, nói tiếng Việt tự nhiên, ngắn gọn.",
