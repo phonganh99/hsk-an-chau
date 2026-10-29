@@ -69,7 +69,7 @@ start.addEventListener("click",async()=>{
  try{
   const result=await api("/api/ai/session",{turnstile_token:captchaToken,consent:true,privacy_notice_version:"hsk-ai-v1"});
   session={id:result.session_id,token:result.session_token};
-  init.hidden=true;active.hidden=false;notice("");
+  init.hidden=true;active.hidden=false;humanMode=false;text.disabled=false;send.disabled=false;notice("");
   bubble("Em là trợ lý tư vấn HSK An Châu. Em hỗ trợ tìm hiểu HSK 1–3 và chuyển yêu cầu đến nhân viên khi cần. Anh/chị đang quan tâm khóa nào?","bot");
   if(result.mode==="guided_fallback")bubble("Hiện hệ thống đang trả lời theo FAQ giới hạn; thông tin chính sách cần nhân viên xác nhận.","system");
   text.focus({preventScroll:true});
