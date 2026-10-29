@@ -1,4 +1,5 @@
 import test from "node:test";
+import {aiCustomer} from "../workers/ai-customer.js";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {normalizePhone,normalizeText,isHandoffIntent,safeFallback,parseWebhookEvent,parseZaloConsult} from "../workers/ai-knowledge.js";
@@ -47,4 +48,20 @@ test("legacy CRM main routes and production config are not modified",()=>{
  assert.doesNotMatch(entry,/import legacy/);
  const sample=readFileSync(new URL("../wrangler.toml.example",import.meta.url),"utf8");
  assert.match(sample,/REPLACE_WITH_STAGING_D1_ID/);
+});
+
+test("AI API is disabled by default without an explicit flag",async()=>{
+ const req=new Request("https://example.test/api/ai/session",{method:"POST",headers:{"origin":"https://hsk.anchaugroup.com.vn"},body:"{}"});
+ const res=await aiCustomer.fetch(req,{DB:{}},null);
+ assert.equal(res.status,503);
+});
+test("foreign Origin cannot start web chat even if feature flag is set",async()=>{
+ const req=new Request("https://example.test/api/ai/session",{method:"POST",headers:{"origin":"https://malicious.example"},body:"{}"});
+ const res=await aiCustomer.fetch(req,{DB:{},AI_ENABLED:"true"},null);
+ assert.equal(res.status,403);
+});
+test("unsigned Zalo webhook is rejected before touching session or CRM",async()=>{
+ const req=new Request("https://example.test/api/zalo/ai-webhook",{method:"POST",headers:{"content-type":"application/json"},body:'{"result":{}}'});
+ const res=await aiCustomer.fetch(req,{DB:{},AI_ZALO_ENABLED:"true",ZALO_WEBHOOK_SECRET:"a".repeat(40)},null);
+ assert.equal(res.status,403);
 });
