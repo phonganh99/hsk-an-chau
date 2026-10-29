@@ -231,18 +231,21 @@ test("Polling bridge pairs only a valid private /bind and sends confirmation",as
   const code="HSK-"+"A".repeat(24);
   const hash=createHash("sha256").update(code).digest("hex");
   const sqlSeen=[];
+  let chatPersisted=false;
   const db={prepare(sql){
     sqlSeen.push(sql);
     return {
       first:async()=>{
         if(sql.includes("FROM zalo_polling_control"))return {mode:"pairing",webhook_removed:1,next_offset:null};
-        if(sql.includes("FROM zalo_notification_target"))return null;
+        if(sql.includes("FROM zalo_notification_target"))return chatPersisted?{chat_id:"private-test-chat-id"}:null;
         return null;
       },
       bind(...args){
         return {
+          all:async()=>({results:[]}),
           run:async()=>{
             if(sql.includes("UPDATE zalo_pair_codes"))assert.equal(args[1],hash);
+            if(sql.includes("INSERT INTO zalo_notification_target"))chatPersisted=true;
             return {meta:{changes:1}}
           }
         }
