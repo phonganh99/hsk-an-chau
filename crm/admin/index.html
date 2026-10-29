@@ -165,7 +165,7 @@ small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;backgroun
 <script>
 (function(){
 "use strict";
-var apiBase="",adminToken="",authenticated=false;
+var apiBase="",adminToken="",authenticated=false,watchZaloPairing=false;
 var $=function(id){return document.getElementById(id)};
 var statusNames={new:"Lead mới",contacted:"Đã liên hệ",invited:"Mời đến VP",deposit:"Đặt cọc",enrolled:"Nhập học",lost:"Không phù hợp"};
 var officeNames={hn:"Hà Nội",na:"Nghệ An"};
@@ -244,7 +244,8 @@ async function zaloCheck(){
  try {
    const r=await request("/api/admin/zalo/status",{signal:controller.signal});
    const data=await r.json();
-   $("zaloState").textContent="Bot Token: "+(data.bot_ready?"đã cấu hình":"chưa cấu hình")+
+   watchZaloPairing=data.polling_mode==="pairing"&&!data.paired;
+    $("zaloState").textContent="Bot Token: "+(data.bot_ready?"đã cấu hình":"chưa cấu hình")+
      " · Webhook Secret: "+(data.webhook_secret_ready?"đã cấu hình":"chưa cấu hình")+
      " · Nhận sự kiện: "+(data.polling_mode==="pairing"?"polling ghép bot":data.polling_mode==="paired"?"đã ghép, gửi tin trực tiếp":data.recovery_active?"ghép dự phòng":data.webhook_url_matches===true?"Webhook đúng URL":data.webhook_url_matches===false?"Webhook SAI URL":"chưa xác minh")+
      " · Cuộc trò chuyện: "+(data.paired?"đã ghép":"chưa ghép")+
@@ -515,7 +516,7 @@ $("export").addEventListener("click",async function(){
  }catch(e){tell(e.message,true)}
 });
 // Chỉ tự kiểm tra trạng thái, không tự nhắn tin vào Bot.
-setInterval(function(){if(authenticated&&document.visibilityState==="visible"&&!$("zaloPollingBanner").hidden&&!$("zaloCommand").hidden)void zaloCheck();},30000);
+setInterval(function(){if(authenticated&&watchZaloPairing&&document.visibilityState==="visible"&&!$("zaloCommand").hidden)void zaloCheck();},30000);
 })();
 </script>
 </body>
