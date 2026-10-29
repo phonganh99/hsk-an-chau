@@ -287,7 +287,7 @@ async function flushN8n(env){
     let ok=false;
     try{
       const result=await fetch(env.N8N_WEBHOOK_URL,{method:"POST",headers:{
-        "Content-Type":"application/json","X-AnChau-Event-Id":row.id,"X-AnChau-Signature":await hmac(env.N8N_SHARED_SECRET,row.payload)
+        "Content-Type":"application/json","X-AnChau-Webhook-Key":env.N8N_SHARED_SECRET,"X-AnChau-Event-Id":row.id,"X-AnChau-Signature":await hmac(env.N8N_SHARED_SECRET,row.payload)
       },body:row.payload,signal:AbortSignal.timeout(8000)});
       ok=result.ok;
     }catch{}
