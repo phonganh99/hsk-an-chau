@@ -1,7 +1,7 @@
 // HSK AI Customer web channel. No secrets, no local/session storage.
 (()=>{
 "use strict";
-const base="https://an-chau-hsk-crm-api.phonganh99.workers.dev";
+const base="https://an-chau-hsk-ai-api.phonganh99.workers.dev";
 const $=id=>document.getElementById(id);
 const launch=$("aiChatLaunch"),panel=$("aiChatPanel"),body=$("aiChatBody");
 if(!launch||!panel||!body)return;
