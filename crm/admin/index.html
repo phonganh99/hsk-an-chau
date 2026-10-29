@@ -530,7 +530,13 @@ async function loadAiCrm(){
  if(!authenticated){state.textContent="Cần đăng nhập CRM trước khi xem AI Customer.";return}
  const button=$("loadAiCrm");button.disabled=true;state.textContent="Đang tải dữ liệu AI Customer…";
  try{
-  const [a,b]=await Promise.all([request("/api/admin/ai/stats"),request("/api/admin/ai/handoffs")]);
+  const aiApiBase="https://an-chau-hsk-ai-api.phonganh99.workers.dev";
+  const aiReq=async endpoint=>{
+   const r=await fetch(aiApiBase+endpoint,{method:"GET",cache:"no-store",headers:{"Authorization":"Bearer "+adminToken,"Accept":"application/json"}});
+   if(!r.ok)throw Error("AI Worker chưa sẵn sàng (HTTP "+r.status+").");
+   return r;
+  };
+  const [a,b]=await Promise.all([aiReq("/api/admin/ai/stats"),aiReq("/api/admin/ai/handoffs")]);
   const values=await a.json(),handoffs=await b.json();
   if(!values.ok||!handoffs.ok)throw Error("AI Customer chưa sẵn sàng");
   stats.replaceChildren();
