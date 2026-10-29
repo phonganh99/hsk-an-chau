@@ -8,7 +8,7 @@ if(!launch||!panel||!body)return;
 const consent=$("aiChatConsent"),status=$("aiChatFeedback");
 const start=$("aiChatStart"),init=$("aiChatInit"),active=$("aiChatActive");
 const text=$("aiChatInput"),send=$("aiChatSend"),handoff=$("aiChatHandoff");
-let session=null,turnstileId=null,captchaToken="",busy=false;
+let session=null,turnstileId=null,captchaToken="",busy=false,humanMode=false;
 function notice(msg){status.textContent=msg}
 function bubble(message,kind="bot"){
  const element=document.createElement("div");
@@ -86,9 +86,9 @@ async function sendText(value){
   const res=await api("/api/ai/message",{session_id:session.id,session_token:session.token,message});
   bubble(res.text||"An Châu chưa thể phản hồi. Vui lòng thử lại.","bot");
   notice(res.mode==="guided_fallback"?"FAQ tự động · Thông tin cần xác nhận bởi nhân viên.":"");
-  if(res.session_state==="human"){send.disabled=true;text.disabled=true}
+  if(res.session_state==="human")humanMode=true;
  }catch(e){bubble("Chưa gửi được phản hồi. Bạn có thể thử lại hoặc nhắn Zalo.","system");showError(e)}
- finally{busy=false;if(!text.disabled)send.disabled=false;if(!text.disabled)text.disabled=false}
+ finally{busy=false;text.disabled=humanMode;send.disabled=humanMode}
 }
 $("aiChatComposer").addEventListener("submit",ev=>{ev.preventDefault();void sendText(text.value)});
 text.addEventListener("keydown",ev=>{if(ev.key==="Enter"&&!ev.shiftKey){ev.preventDefault();void sendText(text.value)}});
@@ -118,7 +118,7 @@ $("aiChatHandoffForm").addEventListener("submit",async ev=>{
   bubble("Đã ghi nhận yêu cầu tư vấn (mã "+(res.lead_code||"đã nhận")+
     "). "+(res.assigned?"Đã có nhân viên phụ trách.":"An Châu đang chờ phân công nhân viên.")+
     " AI sẽ tạm dừng trả lời trong phiên này.","bot");
-  handoff.hidden=true;$("aiChatAskSale").disabled=true;text.disabled=true;send.disabled=true;
+  handoff.hidden=true;$("aiChatAskSale").disabled=true;humanMode=true;text.disabled=true;send.disabled=true;
   notice("Đã chuyển yêu cầu. Nhân viên sẽ chủ động liên hệ theo thông tin bạn cung cấp.");
  }catch(e){showError(e)}
  finally{busy=false;btn.disabled=false}
