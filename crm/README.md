@@ -98,3 +98,24 @@ Nếu Webhook vẫn không nhận tin dù đúng URL:
 Worker được gắn Cron `* * * * *` trên Cloudflare. Cron tự động thử khôi phục Webhook sau khi thời gian ghép dự phòng hết hạn. Không sử dụng chế độ dự phòng nếu Cron bị gỡ. Chế độ này chỉ để xác định chat nhận thông báo; sau đó **hoạt động bình thường vẫn qua Webhook**. Nội dung tin, danh tính người gửi, Bot Token và Secret không được log.
 
 **Lưu ý vận hành:** Trong 3 phút ghép dự phòng, Zalo Webhook bị tạm ngưng; `getUpdates` không hoạt động đồng thời với Webhook theo tài liệu Zalo. Lead vẫn được ghi vào D1 và thông báo nằm trong outbox. Không triển khai thay đổi DNS hoặc cấp ADMIN_TOKEN cho Sale.
+
+## V1.4 — Zalo polling bridge for outbound-only Lead alerts (29/10/2026)
+
+**Reason:** Zalo `testWebhook` returned `webhook.http.403` for `workers.dev`, while independent GitHub HTTP requests reached Worker and Worker traces showed no Zalo callback. This feature provides a temporary inbound pairing mechanism without changing PA DNS or lowering Webhook authentication.
+
+**Deployment:** D1 table `zalo_polling_control` controls mode `pairing` → `paired`. Worker Cron `* * * * *` calls `getUpdates` once each minute, after calling Zalo `deleteWebhook` and confirming the saved URL is empty. API response `error_code:408` is an empty poll. Only an authenticated admin may create a 24-character random `/bind HSK-...` command (96-bit entropy). The code is stored as SHA-256, once per recipient, and must be sent to the bot's **private** chat; no unexpected incoming message can self-pair. A separate one-time 48-hour code can be provisioned by an administrator when handing over.
+
+After the first valid `/bind`, Worker persists the private `chat_id`, attempts a confirmation via `sendMessage` and changes mode to `paired`. Scheduled inbound polling stops, while Cron keeps retrying pending outbox notifications. Direct Lead notifications use outbound `sendMessage`, independent of Webhook. **Does not receive or read Sale's personal Zalo chat history.** It does not forward student names or phone numbers.
+
+**UI:** Admin `Kiểm tra kết nối` shows `polling_mode`, `last_poll_at`, `last_status`, `last_update_count`. In polling mode, the unavailable Webhook testing/syncing and obsolete 3-minute pairing controls are disabled/hidden.
+
+**Checklist before production sign-off:**
+- Worker checks and GitHub Actions pass.
+- D1 mode is `pairing`, `webhook_removed=1`, last status `idle` (means the Zalo Bot API can be polled).
+- The operator sends the new `/bind` command **once** to the private bot chat.
+- Confirm `mode=paired`, `zalo_notification_target` row exists and Zalo confirms the message was delivered.
+- Send a test message from CRM; run deduplication + Lead-notification smoke tests; do not enable public lead collection before it passes.
+
+**Operational limitations:** This is a fallback for *pairing*; it is not a generic production inbound-message Webhook replacement. Cron is every minute only until paired. Once paired, notification delivery is via outbound Zalo API. Do not call `setWebhook` while mode is `pairing` or `paired` (API blocks it). To reactivate inbound Webhook later, explicitly migrate with an operator and confirm a working custom domain first. Secrets must never be placed into repository, issue, or chat.
+
+**Current integration status:** Technical polling is deployed, but real Zalo private pairing and Lead-notification delivery must still be proven end-to-end. Do not mark Zalo production-ready before those two checks.
