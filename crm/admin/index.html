@@ -244,7 +244,8 @@ async function zaloCheck(){
    const audit=(data.webhook_diagnostics||[]).map(x=>x.reason+": "+x.count).join(" · ");
    $("zaloAudit").textContent=audit?"Sự kiện Zalo đã nhận (chỉ đếm, không lưu nội dung): "+audit:"Chưa ghi nhận Webhook nào sau khi bật chẩn đoán.";
    $("zaloBotIdentity").textContent=data.bot_account?
-     "Bot Token hiện kết nối tới tài khoản: "+data.bot_account+" — hãy đối chiếu với Bot An Châu HSK đang nhắn trên Zalo.":
+     "Tài khoản API: "+data.bot_account+" · Bot ID: "+(data.bot_id||"chưa đọc được")+
+     ". Anh đối chiếu Bot ID này với số cuối đường dẫn Deeplink trong Zalo Bot Creator (tab Thông tin).":
      "Chưa đọc được danh tính Bot từ Zalo ("+(data.bot_identity_status||"không rõ")+").";
    $("zaloRecoveryStatus").textContent=data.recovery_active?
      "Đang ở chế độ ghép dự phòng (thời hạn đến "+new Date(data.recovery_expires_at).toLocaleTimeString("vi-VN")+
