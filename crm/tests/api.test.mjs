@@ -200,3 +200,27 @@ test("Zalo polling 408 is an empty update, not HTTP 502",async()=>{
     assert.equal(out.update_count,0);
   }finally{globalThis.fetch=realFetch}
 });
+
+test("Zalo testWebhook requires admin authorization",async()=>{
+  const r=await worker.fetch(req("/api/admin/zalo/test-webhook",{method:"POST"}),{ADMIN_TOKEN:"x".repeat(48)});
+  assert.equal(r.status,401);
+});
+test("Zalo testWebhook returns safe structured results without secrets",async()=>{
+  const key="q".repeat(48);
+  const existingFetch=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    assert.match(String(url),/\/testWebhook$/);
+    return new Response(JSON.stringify({ok:true,result:{ok:false,status_code:403,outcome:"webhook.http.403",latency_ms:23,url:"https://an-chau-hsk-crm-api.phonganh99.workers.dev/api/zalo/webhook",hint:"Untrusted remote hint"}}),{headers:{"content-type":"application/json"}});
+  };
+  try{
+    const r=await worker.fetch(req("/api/admin/zalo/test-webhook",{method:"POST",headers:{"Authorization":"Bearer "+key}}),{ADMIN_TOKEN:key,ZALO_BOT_TOKEN:"t".repeat(36)});
+    assert.equal(r.status,200);
+    const response=await r.json();
+    assert.equal(response.ok,true);
+    assert.equal(response.webhook_reachable,false);
+    assert.equal(response.webhook_http_status,403);
+    assert.equal(response.webhook_url_matches,true);
+    assert.equal(JSON.stringify(response).includes("Untrusted remote hint"),false);
+    assert.equal(JSON.stringify(response).includes("t".repeat(36)),false);
+  }finally{globalThis.fetch=existingFetch}
+});
