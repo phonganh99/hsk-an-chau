@@ -221,6 +221,41 @@ async function zaloStatus(env) {
     webhook_url_matches:checks.url_matches,webhook_api_status:checks.api_status,
     webhook_diagnostics:audits.results||[],bot_account:identity.name,bot_id:identity.id,bot_identity_status:identity.status,recovery_active:recovery?.active===1&&recovery.expires_at>new Date().toISOString(),recovery_expires_at:recovery?.active===1?recovery.expires_at:null});
 }
+async function zaloTestWebhook(env){
+  // This is a diagnostic operation only. It does not change the Webhook
+  // configuration, pair chats, send messages, or expose Bot Token/Secret.
+  if(!zaloBotConfigured(env))return reply({error:"zalo_bot_not_configured"},503);
+  let response;
+  try{
+    response=await fetch("https://bot-api.zaloplatforms.com/bot"+env.ZALO_BOT_TOKEN+"/testWebhook",{
+      method:"POST",headers:{"content-type":"application/json"},
+      body:"{}",signal:AbortSignal.timeout(12000)
+    });
+  }catch(e){
+    return reply({error:e?.name==="TimeoutError"||e?.name==="AbortError"?
+      "test_webhook_timeout":"test_webhook_network_error"},502);
+  }
+  let payload;
+  try{payload=await response.json()}catch{
+    return reply({error:"test_webhook_invalid_response",api_http_status:response.status},502);
+  }
+  if(!response.ok||payload?.ok!==true){
+    return reply({error:"test_webhook_api_rejected",
+      api_http_status:response.status,
+      api_error_code:Number.isInteger(payload?.error_code)?payload.error_code:null},502);
+  }
+  const result=payload?.result;
+  if(!result||typeof result!=="object"||typeof result.ok!=="boolean")
+    return reply({error:"test_webhook_result_unrecognized",api_http_status:response.status},502);
+  // Only safe, allowlisted diagnostic fields are forwarded to the admin.
+  return reply({ok:true,webhook_reachable:result.ok,
+    webhook_http_status:Number.isInteger(result.status_code)?result.status_code:null,
+    webhook_outcome:typeof result.outcome==="string"?result.outcome.slice(0,60):null,
+    webhook_latency_ms:typeof result.latency_ms==="number"?result.latency_ms:null,
+    webhook_url_matches:typeof result.url==="string"?result.url===ZALO_WEBHOOK_URL:null
+  });
+}
+
 async function zaloSyncWebhook(env){
   if(!zaloBotConfigured(env)||!zaloWebhookConfigured(env))
     return reply({error:"zalo_secrets_not_ready"},503);
@@ -520,6 +555,7 @@ export default {
         else if(path==="/api/admin/leads"&&method==="POST")result=await adminCreateLead(req,env,ctx);
         else if(path==="/api/admin/notifications/flush"&&method==="POST")result=reply({ok:true,...await flushZaloOutbox(env,15)});
         else if(path==="/api/admin/zalo/status"&&method==="GET")result=await zaloStatus(env);
+        else if(path==="/api/admin/zalo/test-webhook"&&method==="POST")result=await zaloTestWebhook(env);
         else if(path==="/api/admin/zalo/sync-webhook"&&method==="POST")result=await zaloSyncWebhook(env);
         else if(path==="/api/admin/zalo/recovery/start"&&method==="POST")result=await recoveryStart(env);
         else if(path==="/api/admin/zalo/recovery/finish"&&method==="POST")result=await recoveryFinish(env);
