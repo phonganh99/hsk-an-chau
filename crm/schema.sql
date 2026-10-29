@@ -99,3 +99,16 @@ CREATE TABLE IF NOT EXISTS zalo_recovery_session (
   code_hash TEXT NOT NULL,
   active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
 );
+
+-- Temporary outbound-alert bridge: receive private /bind commands through Zalo getUpdates.
+-- No raw Zalo message or personal identifiers are stored here.
+CREATE TABLE IF NOT EXISTS zalo_polling_control (
+  id TEXT PRIMARY KEY CHECK(id='primary'),
+  mode TEXT NOT NULL CHECK(mode IN ('pairing','paired','off')),
+  webhook_removed INTEGER NOT NULL DEFAULT 0,
+  last_poll_at TEXT,
+  last_status TEXT,
+  last_update_count INTEGER NOT NULL DEFAULT 0,
+  next_offset INTEGER,
+  updated_at TEXT NOT NULL
+);
