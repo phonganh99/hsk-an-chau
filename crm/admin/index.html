@@ -161,6 +161,16 @@ small{color:#847365}.status-dot{width:8px;height:8px;border-radius:50%;backgroun
 </tr></thead><tbody id="rows"><tr><td colspan="10">Kết nối CRM để tải danh sách.</td></tr></tbody></table></div>
 <p class="muted">Trạng thái gồm Lead mới → Đã liên hệ → Mời lên văn phòng → Đặt cọc → Nhập học. Dữ liệu xuất có mã Lead ổn định cho lần chuyển sang CRM chính.</p>
 </div>
+<section class="card" aria-labelledby="aiCrmTitle">
+ <div class="toolbar"><div><h2 id="aiCrmTitle">AI Customer · Bàn giao cho Sale</h2>
+ <p class="muted">Chỉ hiển thị dữ liệu thật từ AI Backend. Nếu chưa triển khai Worker/migration, mục này vẫn ở trạng thái chưa kích hoạt.</p></div>
+ <button id="loadAiCrm" type="button" class="secondary">Tải dữ liệu AI</button></div>
+ <p id="aiCrmStatus" class="muted" role="status" aria-live="polite">Chưa tải dữ liệu AI.</p>
+ <div id="aiCrmStats" class="stat-row" aria-label="Thống kê AI Customer"></div>
+ <div class="table-wrap"><table style="min-width:710px"><thead><tr>
+ <th>Thời điểm</th><th>Kênh</th><th>Mã Lead</th><th>Trạng thái</th><th>Sale</th><th>Tóm tắt yêu cầu</th>
+ </tr></thead><tbody id="aiCrmRows"><tr><td colspan="6">Chưa tải bàn giao AI.</td></tr></tbody></table></div>
+</section>
 </main>
 <script>
 (function(){
@@ -515,6 +525,41 @@ $("export").addEventListener("click",async function(){
   var a=document.createElement("a");a.href=url;a.download="hsk-crm-export.csv";document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);tell("Đã xuất dữ liệu CSV.",false);
  }catch(e){tell(e.message,true)}
 });
+async function loadAiCrm(){
+ const state=$("aiCrmStatus"),stats=$("aiCrmStats"),tbody=$("aiCrmRows");
+ if(!authenticated){state.textContent="Cần đăng nhập CRM trước khi xem AI Customer.";return}
+ const button=$("loadAiCrm");button.disabled=true;state.textContent="Đang tải dữ liệu AI Customer…";
+ try{
+  const aiApiBase="https://an-chau-hsk-ai-api.phonganh99.workers.dev";
+  const aiReq=async endpoint=>{
+   const r=await fetch(aiApiBase+endpoint,{method:"GET",cache:"no-store",headers:{"Authorization":"Bearer "+adminToken,"Accept":"application/json"}});
+   if(!r.ok)throw Error("AI Worker chưa sẵn sàng (HTTP "+r.status+").");
+   return r;
+  };
+  const [a,b]=await Promise.all([aiReq("/api/admin/ai/stats"),aiReq("/api/admin/ai/handoffs")]);
+  const values=await a.json(),handoffs=await b.json();
+  if(!values.ok||!handoffs.ok)throw Error("AI Customer chưa sẵn sàng");
+  stats.replaceChildren();
+  const items=[["Phiên Website",values.stats.web_sessions],["Phiên Zalo",values.stats.zalo_sessions],["Chuyển Sale",values.stats.handoffs],["Chờ phân công",values.stats.unassigned]];
+  for(const [label,value] of items){
+   const box=document.createElement("div");box.className="stat";
+   const strong=document.createElement("strong");strong.textContent=String(value||0);
+   const sub=document.createElement("span");sub.textContent=label;box.append(strong,sub);stats.append(box);
+  }
+  tbody.replaceChildren();
+  if(!handoffs.handoffs.length){const tr=document.createElement("tr"),td=document.createElement("td");td.colSpan=6;td.textContent="Chưa có yêu cầu bàn giao AI.";tr.append(td);tbody.append(tr)}
+  for(const h of handoffs.handoffs){
+   const tr=document.createElement("tr");
+   const cells=[h.created_at?new Date(h.created_at).toLocaleString("vi-VN"):"—",h.channel||"—",String(h.lead_id||"").slice(0,8),h.status||"—",h.assigned_to||"Chờ phân công",h.summary||""];
+   for(const value of cells){const td=document.createElement("td");td.textContent=value;tr.append(td)}
+   tbody.append(tr);
+  }
+  state.textContent="Dữ liệu trực tiếp · "+handoffs.handoffs.length+" yêu cầu trong danh sách.";
+ }catch(e){state.textContent="Chưa thể tải AI Customer: "+(e.message||"Worker hoặc migration chưa sẵn sàng");}
+ finally{button.disabled=false}
+}
+$("loadAiCrm").addEventListener("click",()=>{void loadAiCrm()});
+
 // Chỉ tự kiểm tra trạng thái, không tự nhắn tin vào Bot.
 setInterval(function(){if(authenticated&&watchZaloPairing&&document.visibilityState==="visible"&&!$("zaloCommand").hidden)void zaloCheck();},30000);
 })();

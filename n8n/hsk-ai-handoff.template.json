@@ -1,0 +1,115 @@
+{
+  "name": "An Chau HSK - AI Handoff Event Intake (configure credentials)",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  },
+  "nodes": [
+    {
+      "id": "webhook",
+      "name": "Receive signed handoff",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        320
+      ],
+      "webhookId": "anchau-hsk-ai-handoff",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "anchau-hsk-ai-handoff",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth",
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize",
+      "name": "Validate HSK event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        510,
+        320
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item=$input.first().json;\nconst e=item.body||{};\nif(e.type!=='ai.handoff.requested'||typeof e.event_id!=='string'||!e.event_id||typeof e.lead_id!=='string'||!e.lead_id){throw new Error('invalid_handoff_event');}\nconst channel=['web','zalo'].includes(e.channel)?e.channel:'unknown';\nconst office=['hn','na'].includes(e.office)?e.office:'unknown';\nreturn [{json:{accepted:true,event_id:e.event_id,lead_id:e.lead_id,channel,office,course:String(e.course||'unsure').slice(0,40),assigned_to:String(e.assigned_to||'').slice(0,100),received_at:new Date().toISOString()}}];"
+      }
+    },
+    {
+      "id": "response",
+      "name": "Acknowledge event",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        770,
+        320
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok:true,event_id:$json.event_id,received:true}) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "notification",
+      "name": "OPTIONAL Sale email - configure & enable",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1020,
+        320
+      ],
+      "disabled": true,
+      "parameters": {
+        "fromEmail": "=sales@your-verified-domain.example",
+        "toEmail": "=sales@your-verified-domain.example",
+        "subject": "=HSK Lead cần tư vấn · {{$json.lead_id}}",
+        "html": "=<p>CRM có yêu cầu chuyển Sale mới. Mã: {{$json.lead_id}}. Vào CRM có xác thực để xem chi tiết.</p>",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Receive signed handoff": {
+      "main": [
+        [
+          {
+            "node": "Validate HSK event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate HSK event": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acknowledge event": {
+      "main": [
+        [
+          {
+            "node": "OPTIONAL Sale email - configure & enable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "tags": []
+}

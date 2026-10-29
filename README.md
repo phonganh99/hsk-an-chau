@@ -32,3 +32,7 @@ Nếu Bot chưa được ghép, Lead vẫn được lưu trong CRM, còn thông 
 Mã nguồn frontend đã gửi đăng ký thực tới Worker, không còn thông báo thành công giả. Tuy nhiên phải kiểm thử end-to-end trên tên miền thực: Turnstile hợp lệ → Lead xuất hiện trong CRM → Bot đã ghép → nhận thông báo thực. Không coi việc push GitHub đồng nghĩa với việc vận hành Zalo thành công.
 
 GitHub Pages có thể cấu hình tại Settings → Pages → Deploy from branch → main → /(root).
+
+## AI Customer Platform V1.0 (nhánh phát triển)
+
+MVP Web Chat + Zalo Customer Adapter + AI Knowledge + CRM Handoff + n8n event receiver được phát triển riêng trên `feature/ai-customer-platform-v1`. Chưa deploy production, chưa chạy migration D1. Xem [hướng dẫn triển khai và báo cáo kiểm thử](docs/AI_CUSTOMER_V1.md) trước khi bật dịch vụ.

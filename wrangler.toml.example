@@ -1,0 +1,19 @@
+# Copy to wrangler.toml only after staging and access review.
+name = "an-chau-hsk-ai-api"
+main = "workers/hsk-crm-api.js"
+compatibility_date = "2026-10-29"
+workers_dev = true
+[triggers]
+crons = ["*/5 * * * *"]
+[vars]
+AI_ENABLED = "false"
+AI_ZALO_ENABLED = "false"
+AI_MODEL = ""
+[[d1_databases]]
+binding = "DB"
+database_name = "an-chau-hsk-crm-staging"
+database_id = "REPLACE_WITH_STAGING_D1_ID"
+# Production DB ID requires explicit approval. Never run migration on live DB accidentally.
+# Secrets via 'wrangler secret put': AI_API_KEY, AI_RATE_SALT,
+# TURNSTILE_SECRET, ZALO_BOT_TOKEN, ZALO_WEBHOOK_SECRET, ADMIN_TOKEN,
+# N8N_WEBHOOK_URL, N8N_SHARED_SECRET.
