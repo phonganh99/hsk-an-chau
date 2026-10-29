@@ -1,39 +1,25 @@
-import legacy from "./legacy-hsk-crm.js";
 import {aiCustomer} from "./ai-customer.js";
 
-// Reuse the production CRM implementation unmodified.
-// The new routes remain gated by AI_ENABLED and AI_ZALO_ENABLED.
-// No migration or bot webhook reconfiguration occurs on import/deployment.
+// Dedicated AI Worker. The existing an-chau-hsk-crm-api Worker stays untouched.
+// Both Workers may access the same D1 database only after explicit deployment approval.
 export default {
   async fetch(req,env,ctx){
-    const path=new URL(req.url).pathname;
-    if(path.startsWith("/api/ai/")||path.startsWith("/api/admin/ai/")||path==="/api/zalo/ai-webhook"){
-      return aiCustomer.fetch(req,env,ctx);
+    const url=new URL(req.url);
+    if(url.pathname==="/health"&&req.method==="GET"){
+      return new Response(JSON.stringify({
+        ok:true,service:"hsk-ai-customer",database_ready:!!env.DB,
+        web_enabled:String(env.AI_ENABLED)==="true",
+        zalo_enabled:String(env.AI_ZALO_ENABLED)==="true",
+        ai_mode:env.AI_API_KEY&&env.AI_MODEL?"ai":"guided_fallback"
+      }),{headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
     }
-    if(path==="/api/zalo/webhook"&&req.method==="POST"&&String(env.AI_ZALO_ENABLED)==="true"){
-      // Keep existing /bind HSK-... flow for notification recipient pairing.
-      // All other private text messages flow into the shared AI Customer Agent.
-      let pairing=false;
-      try{
-        if(Number(req.headers.get("content-length")||"0")>10000)return new Response("too_large",{status:413});
-        const data=await req.clone().json();
-        const event=data?.result&&typeof data.result==="object"?data.result:data;
-        pairing=event?.event_name==="message.text.received"&&/^\/bind\s+HSK-/i.test(String(event?.message?.text||""));
-      }catch{return new Response("invalid_json",{status:400})}
-      if(!pairing){
-        const url=new URL(req.url);url.pathname="/api/zalo/ai-webhook";
-        return aiCustomer.fetch(new Request(url.toString(),req),env,ctx);
-      }
+    if(url.pathname==="/api/zalo/webhook"){
+      url.pathname="/api/zalo/ai-webhook";
+      return aiCustomer.fetch(new Request(url.toString(),req),env,ctx);
     }
-    return legacy.fetch(req,env,ctx);
+    return aiCustomer.fetch(req,env,ctx);
   },
   async scheduled(controller,env,ctx){
-    // Both modules must have independent failure containment.
-    const tasks=[Promise.resolve().then(()=>legacy.scheduled(controller,env,ctx))];
-    if(String(env.AI_ENABLED)==="true"||String(env.AI_ZALO_ENABLED)==="true"){
-      tasks.push(aiCustomer.scheduled(env));
-    }
-    const results=await Promise.allSettled(tasks);
-    for(const r of results)if(r.status==="rejected")console.error("HSK scheduled module failed");
+    ctx.waitUntil(aiCustomer.scheduled(env).catch(()=>console.error("AI Customer scheduled job failed")));
   }
 };
