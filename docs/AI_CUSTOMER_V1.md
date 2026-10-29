@@ -80,7 +80,7 @@ Zalo Bot private webhook ---------->     | Knowledge + AI Agent / FAQ fallback
 - `getUpdates` **không thể** chạy song song với webhook, phù hợp chủ yếu development.
 - **Chưa đổi webhook production**. Hiện cùng Bot đang dùng để ghép hội thoại **nhận cảnh báo nội bộ**. Nếu chuyển webhook sang Worker AI trước khi ghép xong, quy trình ghép cũ có thể không nhận `/bind` nữa.
 - Phương án tối ưu: cân nhắc Bot riêng cho khách và Bot riêng cho thông báo nội bộ. Nếu chỉ dùng một Bot, phải hoàn tất ghép staff trước và test. Webhook mới có kiểm tra tách riêng chat nội bộ qua `zalo_notification_target` (không đưa vào AI).
-- Khi được phê duyệt chuyển webhook: dùng URL `https://an-chau-hsk-ai-api.phonganh99.workers.dev/api/zalo/webhook`, cấu hình `setWebhook` với token/secret phù hợp, kiểm tra `getWebhookInfo`, test một tin thực từ tài khoản ngoài; chỉ khi webhook thành công mới bật `AI_ZALO_ENABLED=true`.
+- Khi được phê duyệt chuyển webhook: xác nhận đã ghép nhân sự nhận thông báo nội bộ; bật `AI_ZALO_ENABLED=true` trên AI Worker đích, kiểm tra việc từ chối chữ ký sai, rồi dùng `setWebhook` với URL `https://an-chau-hsk-ai-api.phonganh99.workers.dev/api/zalo/webhook` và secret đúng. Kiểm tra `getWebhookInfo` và gửi một tin nhắn thật từ tài khoản ngoài. Nếu lỗi, khôi phục webhook cũ theo quy trình rollback được duyệt.
 - Sau đó thử `/tuvan Họ tên | 0912345678 | HSK1 | HN | DONGY`. Đây là luồng đồng ý rõ ràng để CRM có thể ghi số liên hệ. Khách có thể chọn khóa/cơ sở khác theo mẫu trong tin hướng dẫn.
 
 ## E. Kiểm thử và tiêu chí nghiệm thu
