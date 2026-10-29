@@ -65,7 +65,8 @@ async function webSession(req,env){
 async function webAuth(req,env,input){
   if(typeof input?.session_id!=="string"||typeof input?.session_token!=="string")return null;
   const row=await env.DB.prepare("SELECT * FROM ai_sessions WHERE id=? AND channel='web'").bind(input.session_id).first();
-  if(!row||row.expires_at<=iso()||!await equalSecrets(input.session_token,row.secret_hash) && await sha(input.session_token)!==row.secret_hash)return null;
+  if(!row||row.expires_at<=iso()||!/^[0-9a-f]{64}$/.test(input.session_token))return null;
+  if(!await equalSecrets(await sha(input.session_token),row.secret_hash))return null;
   return row;
 }
 async function store(env,id,role,text){
@@ -170,7 +171,7 @@ async function handoff(env,session,identity){
   }
   const now=iso();
   const recent=await history(env,session.id);
-  const summary="Kênh: "+session.channel+" | Khóa: "+safeCourse(identity.course)+" | Cơ sở: "+safeOffice(identity.office)+". Khách chủ động xin tư vấn. Chủ đề: "+recent.filter(x=>x.role==="user").map(x=>normalizeText(x.content,150)).slice(-3).join(" / ").slice(0,450);
+  const summary="Kênh: "+session.channel+" | Khóa: "+safeCourse(identity.course)+" | Cơ sở: "+safeOffice(identity.office)+". Khách chủ động xin tư vấn. Chủ đề: "+recent.filter(x=>x.role==="user").map(x=>normalizeText(x.content,150).replace(/(?:\+84|0)[\d .()-]{8,14}/g,"[số liên hệ đã ẩn]")).slice(-3).join(" / ").slice(0,450);
   const lead=await makeLead(env,session.channel,identity);
   const assigned=await chooseSale(env,lead.id,safeCourse(identity.course),safeOffice(identity.office));
   const handoffId=crypto.randomUUID();
