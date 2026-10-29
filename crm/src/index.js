@@ -219,7 +219,7 @@ async function zaloStatus(env) {
     paired:!!target?.chat_id,chat_type:target?.chat_type||null,pending:pending?.total||0,
     webhook_url:ZALO_WEBHOOK_URL,webhook_api_ok:checks.api_status==="ok",
     webhook_url_matches:checks.url_matches,webhook_api_status:checks.api_status,
-    webhook_diagnostics:audits.results||[],bot_account:identity.name,bot_identity_status:identity.status,recovery_active:recovery?.active===1&&recovery.expires_at>new Date().toISOString(),recovery_expires_at:recovery?.active===1?recovery.expires_at:null});
+    webhook_diagnostics:audits.results||[],bot_account:identity.name,bot_id:identity.id,bot_identity_status:identity.status,recovery_active:recovery?.active===1&&recovery.expires_at>new Date().toISOString(),recovery_expires_at:recovery?.active===1?recovery.expires_at:null});
 }
 async function zaloSyncWebhook(env){
   if(!zaloBotConfigured(env)||!zaloWebhookConfigured(env))
@@ -257,11 +257,12 @@ async function zaloApiCall(env,method,payload={},timeout=6000){
   return data.result;
 }
 async function zaloIdentity(env){
-  if(!zaloBotConfigured(env))return {name:null,status:"missing_token"};
+  if(!zaloBotConfigured(env))return {name:null,id:null,status:"missing_token"};
   try{
     const info=await zaloApiCall(env,"getMe",{},3000);
-    return {name:cleanText(info?.account_name,80)||null,status:"ok"};
-  }catch{return {name:null,status:"unreachable"}}
+    const id=String(info?.id??"");
+    return {name:cleanText(info?.account_name,80)||null,id:/^[0-9]{5,24}$/.test(id)?id:null,status:"ok"};
+  }catch{return {name:null,id:null,status:"unreachable"}}
 }
 async function restoreWebhook(env){
   try {
